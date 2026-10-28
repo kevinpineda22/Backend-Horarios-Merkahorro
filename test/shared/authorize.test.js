@@ -39,6 +39,21 @@ test("loadAccess: user without a row -> 403 FORBIDDEN_ROLE", async () => {
   assert.equal(err.code, "FORBIDDEN_ROLE");
 });
 
+test("loadAccess: revoked row -> 403 FORBIDDEN_ROLE (defense in depth)", async () => {
+  const req = { user: { id: "u1" } };
+  const err = await run(loadAccess(repoOf({ role: "admin", sede_ids: null, revoked_at: "2026-10-01T00:00:00Z" })), req);
+  assert.equal(err.statusCode, 403);
+  assert.equal(err.code, "FORBIDDEN_ROLE");
+  assert.equal(req.access, undefined);
+});
+
+test("loadAccess: active row with revoked_at null still passes", async () => {
+  const req = { user: { id: "u1" } };
+  const err = await run(loadAccess(repoOf({ role: "viewer", sede_ids: ["a"], revoked_at: null })), req);
+  assert.equal(err, undefined);
+  assert.deepEqual(req.access, { role: "viewer", sedeIds: ["a"] });
+});
+
 test("loadAccess: repository failure fails closed (error forwarded, no access attached)", async () => {
   const boom = new Error("db down");
   const req = { user: { id: "u1" } };

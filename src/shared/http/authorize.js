@@ -31,7 +31,8 @@ export function loadAccess(accessRepo) {
     }
     try {
       const row = await accessRepo.findByUserId(req.user.id);
-      if (!row || !ROLES.includes(row.role)) return next(forbiddenRole());
+      // A revoked row is never valid, even if a repository returns it.
+      if (!row || row.revoked_at || !ROLES.includes(row.role)) return next(forbiddenRole());
       req.access = Object.freeze({ role: row.role, sedeIds: row.sede_ids ?? null });
       return next();
     } catch (err) {

@@ -96,6 +96,10 @@ test("access repo: returns the row or null, throws on error", async () => {
   assert.deepEqual(await createAccessRepo(hit.client).findByUserId("u1"), { role: "planner", sede_ids: ["s1"] });
   assert.ok(has(hit.log, "from", "sugerido_access"));
   assert.ok(has(hit.log, "eq", "user_id", "u1"));
+  assert.ok(has(hit.log, "is", "revoked_at", null), "revoked rows must be ignored");
+  // maybeSingle: a missing row yields data=null (-> 403), whereas single() would error.
+  assert.ok(has(hit.log, "maybeSingle"), "must use maybeSingle()");
+  assert.equal(hit.log.some((c) => c[0] === "single"), false, "must not use single()");
   assert.equal(await createAccessRepo(fakeClient({ data: null, error: null }).client).findByUserId("u1"), null);
   await assert.rejects(createAccessRepo(fakeClient({ data: null, error: new Error("down") }).client).findByUserId("u"), /down/);
 });
