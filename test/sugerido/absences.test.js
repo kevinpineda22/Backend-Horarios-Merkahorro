@@ -4,17 +4,22 @@ import assert from "node:assert/strict";
 import {
   ABSENCE_TYPES,
   absentDaysByCedula,
-  inferBlockingEnd,
   normalizeAbsences,
-  normalizeBlockingObservation,
   parseDateOnly,
 } from "../../src/modules/sugerido/domain/absences.js";
 
 const ALL = ABSENCE_TYPES;
-const obs = (tipo, details = {}, extra = {}) => ({ id: 1, cedula: "100", tipo_novedad: tipo, details, ...extra });
-const norm = (o, types = ALL) => normalizeBlockingObservation(o, types);
+const row = (tipo, inicio, fin, extra = {}) => ({
+  id: "n1",
+  cedula: "100200",
+  tipo,
+  fecha_inicio: inicio,
+  fecha_fin: fin,
+  anulada: false,
+  ...extra,
+});
 
-test("ABSENCE_TYPES lists the 6 legacy types", () => {
+test("ABSENCE_TYPES lists the 6 novedad types", () => {
   assert.deepEqual([...ABSENCE_TYPES], ["Incapacidades", "Licencias", "Vacaciones", "Permisos", "Estudio", "Día de la Familia"]);
 });
 
@@ -28,95 +33,79 @@ test("parseDateOnly accepts YYYY-MM-DD and ISO timestamps, rejects junk", () => 
   assert.equal(parseDateOnly(true), null);
 });
 
-test("each of the 6 types resolves its own date keys", () => {
-  assert.deepEqual(
-    pick(norm(obs("Incapacidades", { fecha_inicio: "2026-10-26", fecha_fin: "2026-10-28" }))),
-    ["2026-10-26", "2026-10-28"]
+test("normalizeAbsences maps plain inclusive ranges for every type", () => {
+  const { absences, warnings } = normalizeAbsences(
+    ALL.map((t, i) => row(t, "2026-10-26", "2026-10-28", { id: `n${i}` })),
+    ALL
   );
-  assert.deepEqual(
-    pick(norm(obs("Licencias", { fecha_inicio: "2026-10-26", fecha_termino: "2026-10-30" }))),
-    ["2026-10-26", "2026-10-30"]
+  assert.equal(warnings.length, 0);
+  assert.equal(absences.length, 6);
+  assert.deepEqual(absences[0], { id: "n0", cedula: "100200", tipo: "Incapacidades", start: "2026-10-26", end: "2026-10-28" });
+});
+
+test("a single-day range (inicio = fin) blocks exactly 1 day", () => {
+  const { absences, warnings } = normalizeAbsences([row("Permisos", "2026-10-28", "2026-10-28")], ALL);
+  assert.equal(warnings.length, 0);
+  assert.deepEqual([absences[0].start, absences[0].end], ["2026-10-28", "2026-10-28"]);
+  const days = absentDaysByCedula(absences, "2026-10-26").get("100200");
+  assert.deepEqual([...days], ["2026-10-28"]);
+});
+
+test("timestamps are cut to their date part", () => {
+  const { absences } = normalizeAbsences([row("Licencias", "2026-10-26T00:00:00Z", "2026-10-27T00:00:00Z")], ALL);
+  assert.deepEqual([absences[0].start, absences[0].end], ["2026-10-26", "2026-10-27"]);
+});
+
+test("cancelled rows (anulada) are ignored without warnings", () => {
+  const { absences, warnings } = normalizeAbsences(
+    [row("Licencias", "2026-10-26", "2026-10-27", { anulada: true }), row("Licencias", "2026-10-26", "2026-10-27", { id: "ok" })],
+    ALL
   );
-  assert.deepEqual(
-    pick(norm(obs("Vacaciones", { fecha_inicio_vacaciones: "2026-10-26", fecha_fin_vacaciones: "2026-11-06" }))),
-    ["2026-10-26", "2026-11-06"]
-  );
-  assert.deepEqual(
-    pick(norm(obs("Permisos", { fecha_inicio: "2026-10-26", fecha_fin: "2026-10-27" }))),
-    ["2026-10-26", "2026-10-27"]
-  );
-  assert.deepEqual(
-    pick(norm(obs("Estudio", { fecha_inicio: "2026-10-26", fecha_fin: "2026-10-27" }))),
-    ["2026-10-26", "2026-10-27"]
-  );
-  assert.deepEqual(
-    pick(norm(obs("Día de la Familia", { fecha_propuesta_dia_familia: "2026-10-30" }))),
-    ["2026-10-30", "2026-10-30"]
-  );
+  assert.deepEqual(absences.map((a) => a.id), ["ok"]);
+  assert.equal(warnings.length, 0);
 });
 
-function pick(a) {
-  return [a.start, a.end];
-}
-
-test("Vacaciones without end uses return date minus one day", () => {
-  const a = norm(obs("Vacaciones", { fecha_inicio_vacaciones: "2026-10-20", fecha_regreso_vacaciones: "2026-10-27" }));
-  assert.deepEqual(pick(a), ["2026-10-20", "2026-10-26"]);
+test("anulada must be exactly true to exclude (false/undefined/null stay active)", () => {
+  const rows = [false, undefined, null].map((anulada, i) => row("Licencias", "2026-10-26", "2026-10-27", { id: `r${i}`, anulada }));
+  assert.equal(normalizeAbsences(rows, ALL).absences.length, 3);
 });
 
-test("Estudio with dias_estudio spans first to last sorted date", () => {
-  const a = norm(obs("Estudio", { dias_estudio: [{ fecha: "2026-10-29" }, { fecha: "2026-10-26" }, { fecha: "2026-10-27" }] }));
-  assert.deepEqual(pick(a), ["2026-10-26", "2026-10-29"]);
-});
-
-test("falls back to fecha_novedad when details has no start", () => {
-  const a = norm(obs("Permisos", {}, { fecha_novedad: "2026-10-28" }));
-  assert.deepEqual(pick(a), ["2026-10-28", "2026-10-28"]);
-});
-
-test("accepts legacy `tipo` key too", () => {
-  const a = norm({ id: 2, cedula: "1", tipo: "Licencias", details: { fecha_inicio: "2026-10-26" } });
-  assert.equal(a.tipo, "Licencias");
-});
-
-test("inferBlockingEnd fallbacks: valid end wins, then regreso, duration, diasIncapacidad, start", () => {
-  assert.equal(inferBlockingEnd("Licencias", "2026-10-26", "2026-10-30", {}), "2026-10-30");
-  assert.equal(inferBlockingEnd("Licencias", "2026-10-26", "2026-10-26", {}), "2026-10-26"); // end == start is valid
-  assert.equal(inferBlockingEnd("Vacaciones", "2026-10-26", null, { fecha_regreso_vacaciones: "2026-11-02" }), "2026-11-01");
-  assert.equal(inferBlockingEnd("Licencias", "2026-10-26", null, { duracion_dias: 3 }), "2026-10-28");
-  assert.equal(inferBlockingEnd("Incapacidades", "2026-10-26", null, { diasIncapacidad: "5 días" }), "2026-10-30");
-  assert.equal(inferBlockingEnd("Incapacidades", "2026-10-26", null, { diasIncapacidad: 2 }), "2026-10-27");
-  assert.equal(inferBlockingEnd("Licencias", "2026-10-26", "2026-10-20", {}), "2026-10-26"); // end before start
-  assert.equal(inferBlockingEnd("Licencias", "2026-10-26", null, { duracion_dias: 0 }), "2026-10-26");
-});
-
-test("Incapacidades without any end key uses diasIncapacidad", () => {
-  const a = norm(obs("Incapacidades", { diasIncapacidad: "3 días" }, { fecha_novedad: "2026-10-26" }));
-  assert.deepEqual(pick(a), ["2026-10-26", "2026-10-28"]);
-});
-
-test("types outside the blocking set or the 6 legacy types are ignored", () => {
+test("types outside the blocking set or the known types are ignored without warnings", () => {
   const without = ALL.filter((t) => t !== "Estudio");
-  assert.equal(norm(obs("Estudio", { fecha_inicio: "2026-10-26" }), without), null);
-  assert.equal(norm(obs("Otra", { fecha_inicio: "2026-10-26" }), [...ALL, "Otra"]), null);
-  assert.equal(norm(null), null);
+  const r = normalizeAbsences([row("Estudio", "2026-10-26", "2026-10-27"), row("Otra", "nope", "nope"), null], [...without, "Otra"]);
+  assert.deepEqual(r, { absences: [], warnings: [] });
 });
 
-test("normalizeAbsences returns warnings for unparseable or cedula-less blocking rows", () => {
+test("non-array input yields an empty result", () => {
+  assert.deepEqual(normalizeAbsences(undefined, ALL), { absences: [], warnings: [] });
+});
+
+test("cedula is normalized (trim + strip non-digits) per R-b", () => {
+  const { absences } = normalizeAbsences(
+    [row("Licencias", "2026-10-26", "2026-10-27", { cedula: " 1.234.567 " }), row("Licencias", "2026-10-26", "2026-10-27", { cedula: 7654321 })],
+    ALL
+  );
+  assert.deepEqual(absences.map((a) => a.cedula), ["1234567", "7654321"]);
+});
+
+test("warnings: missing cedula, invalid date, end before start", () => {
   const { absences, warnings } = normalizeAbsences(
     [
-      obs("Licencias", { fecha_inicio: "2026-10-26" }, { id: 10, cedula: " 123 " }),
-      obs("Licencias", { fecha_inicio: "nope" }, { id: 11 }),
-      obs("Licencias", { fecha_inicio: "2026-10-26" }, { id: 12, cedula: null }),
-      obs("Estudio", { fecha_inicio: "nope" }, { id: 13 }), // not blocking: no warning
+      row("Licencias", "2026-10-26", "2026-10-27", { id: "ok", cedula: " 123456 " }),
+      row("Licencias", "2026-10-26", "2026-10-27", { id: "nocedula", cedula: null }),
+      row("Licencias", "2026-10-26", "2026-10-27", { id: "letters", cedula: "abc" }),
+      row("Licencias", "nope", "2026-10-27", { id: "badstart" }),
+      row("Licencias", "2026-10-26", "2026-02-30", { id: "badend" }),
+      row("Licencias", "2026-10-27", "2026-10-26", { id: "reversed" }),
     ],
     ["Licencias"]
   );
-  assert.equal(absences.length, 1);
-  assert.equal(absences[0].cedula, "123");
-  assert.equal(warnings.length, 2);
-  assert.match(warnings[0], /11/);
-  assert.match(warnings[1], /12/);
+  assert.deepEqual(absences.map((a) => a.id), ["ok"]);
+  assert.equal(absences[0].cedula, "123456");
+  assert.equal(warnings.length, 5);
+  for (const [i, id] of ["nocedula", "letters", "badstart", "badend", "reversed"].entries()) {
+    assert.match(warnings[i], new RegExp(id));
+  }
 });
 
 test("absentDaysByCedula clips ranges to the target week (Fri prior week -> Tue)", () => {
@@ -144,25 +133,4 @@ test("absence covering the whole week yields 7 days; multiple absences merge per
     w
   );
   assert.equal(m.get("1").size, 3);
-});
-
-test("Incapacidades with fecha_inicio and no fecha_fin uses diasIncapacidad (5 blocked days)", () => {
-  const a = norm(obs("Incapacidades", { fecha_inicio: "2026-10-26", diasIncapacidad: 5 }));
-  assert.deepEqual(pick(a), ["2026-10-26", "2026-10-30"]);
-});
-
-test("Incapacidades: explicit fecha_fin wins over diasIncapacidad; neither -> 1 day", () => {
-  const explicit = norm(obs("Incapacidades", { fecha_inicio: "2026-10-26", fecha_fin: "2026-10-27", diasIncapacidad: 5 }));
-  assert.deepEqual(pick(explicit), ["2026-10-26", "2026-10-27"]);
-  const none = norm(obs("Incapacidades", { fecha_inicio: "2026-10-26" }));
-  assert.deepEqual(pick(none), ["2026-10-26", "2026-10-26"]);
-});
-
-test("Licencias with fecha_inicio and no fecha_termino uses duracion_dias; explicit end wins", () => {
-  const dur = norm(obs("Licencias", { fecha_inicio: "2026-10-26", duracion_dias: 3 }));
-  assert.deepEqual(pick(dur), ["2026-10-26", "2026-10-28"]);
-  const explicit = norm(obs("Licencias", { fecha_inicio: "2026-10-26", fecha_termino: "2026-10-27", duracion_dias: 3 }));
-  assert.deepEqual(pick(explicit), ["2026-10-26", "2026-10-27"]);
-  const none = norm(obs("Licencias", { fecha_inicio: "2026-10-26" }));
-  assert.deepEqual(pick(none), ["2026-10-26", "2026-10-26"]);
 });
