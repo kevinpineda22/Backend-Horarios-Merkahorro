@@ -39,6 +39,14 @@ test("loadAccess: user without a row -> 403 FORBIDDEN_ROLE", async () => {
   assert.equal(err.code, "FORBIDDEN_ROLE");
 });
 
+test("loadAccess: repository failure fails closed (error forwarded, no access attached)", async () => {
+  const boom = new Error("db down");
+  const req = { user: { id: "u1" } };
+  const err = await run(loadAccess({ findByUserId: async () => { throw boom; } }), req);
+  assert.equal(err, boom);
+  assert.equal(req.access, undefined);
+});
+
 test("loadAccess: unknown role value -> 403 FORBIDDEN_ROLE", async () => {
   const err = await run(loadAccess(repoOf({ role: "root", sede_ids: null })), { user: { id: "u1" } });
   assert.equal(err.code, "FORBIDDEN_ROLE");
