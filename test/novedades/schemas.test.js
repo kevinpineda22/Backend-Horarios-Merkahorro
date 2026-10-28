@@ -106,3 +106,27 @@ test("id param must be a uuid", () => {
   ok(idParamSchema, { id: "3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab" });
   bad(idParamSchema, { id: "123" });
 });
+
+test("cedula follows the company rule: leading zeros stripped, then 5..15 digits (R-b, R-h)", () => {
+  assert.equal(ok(createNovedadSchema, { ...base, cedula: "0012345678" }).cedula, "12345678");
+  assert.equal(ok(createNovedadSchema, { ...base, cedula: " 00.123.456 " }).cedula, "123456");
+  assert.equal(ok(patchNovedadSchema, { cedula: "0012345" }).cedula, "12345");
+  bad(createNovedadSchema, { ...base, cedula: "00001234" });
+  bad(createNovedadSchema, { ...base, cedula: "0000" });
+  bad(createNovedadSchema, { ...base, cedula: "00123x456" });
+  bad(patchNovedadSchema, { cedula: "00001234" });
+});
+
+test("cedula made only of zeros is rejected even though it has 5..15 digits", () => {
+  bad(createNovedadSchema, { ...base, cedula: "0000000" });
+  bad(createNovedadSchema, { ...base, cedula: "000.000.000" });
+  bad(patchNovedadSchema, { cedula: "00000" });
+  bad(listQuerySchema, { cedula: "0000000" });
+});
+
+test("list query: ?cedula=0012345 equals 12345; letters and short normalized values are rejected", () => {
+  assert.equal(ok(listQuerySchema, { cedula: "0012345" }).cedula, "12345");
+  assert.equal(ok(listQuerySchema, { cedula: "12345" }).cedula, "12345");
+  bad(listQuerySchema, { cedula: "00001234" });
+  bad(listQuerySchema, { cedula: "12a45" });
+});

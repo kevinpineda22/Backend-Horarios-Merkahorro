@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { toEpochDay } from "../sugerido/domain/dates.js";
+import { isValidCedula, normalizeCedula } from "../../shared/cedula.js";
 import { NOVEDAD_TYPES } from "./domain/novedadTypes.js";
 
 const required = (label) => ({ required_error: `${label} es obligatorio` });
@@ -17,11 +18,15 @@ const dateOnly = z.string(required("La fecha")).refine(
   { message: "Fecha inválida (use AAAA-MM-DD)" },
 );
 
-// Trim, strip separators (spaces, dots, commas, dashes), then require 5-15 digits.
+// Reject anything but digits and formatting separators (letters signal a typo), then apply the
+// company-wide normalization (digits only, leading zeros stripped) and require 5-15 digits.
 const cedula = z
   .string(required("La cédula"))
-  .transform((v) => v.replace(/[\s.,-]/g, ""))
-  .refine((v) => /^[0-9]{5,15}$/.test(v), { message: "Cédula inválida (5 a 15 dígitos)" });
+  .refine((v) => /^[0-9\s.,-]*$/.test(v), { message: "Cédula inválida (5 a 15 dígitos)" })
+  .transform(normalizeCedula)
+  .refine(isValidCedula, { message: "Cédula inválida (5 a 15 dígitos)" })
+  // All zeros survives normalization but can never match a real employee.
+  .refine((v) => !/^0+$/.test(v), { message: "Cédula inválida (5 a 15 dígitos)" });
 
 // Normalize to NFC so "Día" sent in decomposed form (NFD) matches the canonical label.
 const tipo = z.preprocess(

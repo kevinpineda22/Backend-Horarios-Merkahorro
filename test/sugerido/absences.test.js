@@ -134,3 +134,11 @@ test("absence covering the whole week yields 7 days; multiple absences merge per
   );
   assert.equal(m.get("1").size, 3);
 });
+
+test("cedula leading zeros are stripped like the company standard (R-b)", () => {
+  const { absences } = normalizeAbsences([
+    row("Licencias", "2026-10-26", "2026-10-27", { cedula: "0012345" }),
+    row("Licencias", "2026-10-26", "2026-10-27", { cedula: "0000" }),
+  ]);
+  assert.deepEqual(absences.map((a) => a.cedula), ["12345", "0000"]);
+});

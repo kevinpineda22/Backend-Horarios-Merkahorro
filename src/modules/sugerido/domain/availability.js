@@ -1,5 +1,6 @@
 import { absentDaysByCedula } from "./absences.js";
 import { weekDates } from "./dates.js";
+import { normalizeCedula } from "../../../shared/cedula.js";
 
 const DAYS_PER_WEEK = 7;
 const SETTING_KEYS = ["ordinaryWeeklyHours", "overtimeWeeklyHours", "dailyMaxHours", "maxWorkingDaysPerWeek"];
@@ -24,7 +25,7 @@ export function computeAvailability({ weekStart, pool, absences, settings, requi
   validate(settings);
   const { ordinaryWeeklyHours, overtimeWeeklyHours, dailyMaxHours, maxWorkingDaysPerWeek } = settings;
 
-  const cedulas = [...new Set(pool.map((p) => String(p.cedula).trim()).filter(Boolean))];
+  const cedulas = [...new Set(pool.map((p) => normalizeCedula(p.cedula)).filter(Boolean))];
   const absent = absentDaysByCedula(absences, weekStart);
   const days = weekDates(weekStart);
 

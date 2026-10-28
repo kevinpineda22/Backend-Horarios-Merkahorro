@@ -2,6 +2,7 @@
 // ({ id, cedula, tipo, fecha_inicio, fecha_fin, anulada }). Dates are 'YYYY-MM-DD'
 // strings; no Date objects, so there is no local-midnight drift.
 import { toEpochDay, weekDates } from "./dates.js";
+import { normalizeCedula } from "../../../shared/cedula.js";
 
 // Novedades owns the canonical list; sugerido consumes it under its own name.
 export { NOVEDAD_TYPES as ABSENCE_TYPES } from "../../novedades/domain/novedadTypes.js";
@@ -17,11 +18,6 @@ export function parseDateOnly(value) {
   } catch {
     return null;
   }
-}
-
-/** Trim and strip non-digit separators (spaces, dots); same rule as the novedades API. */
-function normalizeCedula(value) {
-  return value == null ? "" : String(value).replace(/\D/g, "");
 }
 
 /**

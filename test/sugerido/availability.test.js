@@ -94,3 +94,23 @@ test("pool cedula with surrounding whitespace still matches an absence cedula wi
   const r = run({ pool: pool(" 1 ", "2", "3"), absences: [abs("1", "2026-10-26", "2026-10-26")] });
   assert.equal(r.available["2026-10-26"], 2);
 });
+
+test("pool keys are normalized: pool \"0012345\" matches an absence stored as \"12345\"", () => {
+  const r = run({ pool: pool("0012345", "2", "3"), absences: [abs("12345", "2026-10-26", "2026-10-26")] });
+  assert.equal(r.available["2026-10-26"], 2);
+});
+
+test("pool \"0012345\" and \"12345\" are the same cashier (deduplicated)", () => {
+  const r = run({ pool: pool("0012345", "12345", "2") });
+  assert.equal(r.available["2026-10-26"], 2);
+});
+
+test("cross-module: a novedad stored for \"0012345\" blocks pool member \"12345\"", async () => {
+  const { normalizeAbsences } = await import("../../src/modules/sugerido/domain/absences.js");
+  const rows = [{ id: "n1", cedula: "0012345", tipo: "Incapacidades", fecha_inicio: "2026-10-26", fecha_fin: "2026-10-27", anulada: false }];
+  const { absences } = normalizeAbsences(rows);
+  const r = run({ pool: pool("12345", "2", "3"), absences });
+  assert.equal(r.available["2026-10-26"], 2);
+  assert.equal(r.available["2026-10-27"], 2);
+  assert.equal(r.available["2026-10-28"], 3);
+});
