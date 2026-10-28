@@ -3,14 +3,9 @@
 // strings; no Date objects, so there is no local-midnight drift.
 import { toEpochDay, weekDates } from "./dates.js";
 
-export const ABSENCE_TYPES = Object.freeze([
-  "Incapacidades",
-  "Licencias",
-  "Vacaciones",
-  "Permisos",
-  "Estudio",
-  "Día de la Familia",
-]);
+// Novedades owns the canonical list; sugerido consumes it under its own name.
+export { NOVEDAD_TYPES as ABSENCE_TYPES } from "../../novedades/domain/novedadTypes.js";
+import { NOVEDAD_TYPES as ABSENCE_TYPES } from "../../novedades/domain/novedadTypes.js";
 
 /** First 10 chars as 'YYYY-MM-DD' when it is a real calendar date, otherwise null. */
 export function parseDateOnly(value) {
