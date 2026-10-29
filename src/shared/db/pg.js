@@ -17,7 +17,9 @@ export function createPgPool(options, PoolClass = pg.Pool) {
     ssl: options.ssl,
     max: 1,
     idleTimeoutMillis: 10_000,
-    statement_timeout: options.statementTimeoutMs ?? 10_000,
+    // Bounded so a hung connect fails inside our error mapping, before Vercel's 30 s cut.
+    connectionTimeoutMillis: 5_000,
+    statement_timeout: options.statementTimeoutMs ?? 8_000,
   });
   // An idle-client error must not crash the process.
   pool.on("error", (err) => console.error("pg pool error:", err.message));

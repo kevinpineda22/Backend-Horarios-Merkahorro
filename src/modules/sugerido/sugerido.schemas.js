@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isoDow, toEpochDay, weekDates } from "./domain/dates.js";
+import { NOVEDAD_TYPES } from "../novedades/domain/novedadTypes.js";
 
 export const MAX_OVERRIDE_ITEMS = 700;
 const MAX_HEADCOUNT = 2_147_483_647; // Postgres int4: the column behind sugerido_overrides.headcount
@@ -58,3 +59,46 @@ export function createOverridesBodySchema(weekStartParam) {
       });
     });
 }
+
+// ---------------------------------------------------------------------------
+// Settings (PUT /settings). Ranges: utilization in (0, 1], hours > 0, working days 1..7 and
+// blockingAbsenceTypes a subset of the novedad tipos (spec R6.3). The upper bounds on hours and
+// counts are physical/sanity limits (a day has 24 h, a week 168 h), not business rules.
+// ---------------------------------------------------------------------------
+const MAX_WEEK_HOURS = 168;
+const MAX_DAY_HOURS = 24;
+const MAX_MIN_CASHIERS = 100;
+const MAX_STALE_DAYS = 365;
+const MIN_UTILIZATION = 0.1;
+
+const hours = (max) =>
+  z.number({ invalid_type_error: "Debe ser un número" }).finite().gt(0, "Debe ser mayor que 0").max(max, `No puede superar ${max}`);
+const wholeNumber = (min, max) =>
+  z.number({ invalid_type_error: "Debe ser un número entero" }).int("Debe ser un número entero").min(min, `Debe ser al menos ${min}`).max(max, `No puede superar ${max}`);
+
+/**
+ * Partial settings update: at least one recognised key, unknown keys are stripped (so id,
+ * updatedBy or updatedAt can never be set from the body). Strict numbers: no string coercion.
+ */
+export const settingsPatchSchema = z
+  .object({
+    ordinaryWeeklyHours: hours(MAX_WEEK_HOURS),
+    overtimeWeeklyHours: hours(MAX_WEEK_HOURS),
+    dailyMaxHours: hours(MAX_DAY_HOURS),
+    // Lower bound 0.1, not just > 0: headcount divides by productivity × utilization, so a
+    // typo near zero would blow every sede's suggestion up to Infinity.
+    utilization: z
+      .number({ invalid_type_error: "Debe ser un número" })
+      .min(MIN_UTILIZATION, `Debe ser al menos ${MIN_UTILIZATION}`)
+      .max(1, "No puede superar 1"),
+    maxWorkingDaysPerWeek: wholeNumber(1, 7),
+    minCashiers: wholeNumber(0, MAX_MIN_CASHIERS),
+    staleAfterDays: wholeNumber(0, MAX_STALE_DAYS),
+    blockingAbsenceTypes: z
+      .array(z.enum(NOVEDAD_TYPES, { errorMap: () => ({ message: "Tipo de ausencia inválido" }) }), {
+        invalid_type_error: "Se esperaba una lista de tipos de ausencia",
+      })
+      .transform((types) => [...new Set(types)]),
+  })
+  .partial()
+  .refine((patch) => Object.values(patch).some((v) => v !== undefined), { message: "Debes enviar al menos un parámetro" });

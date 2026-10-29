@@ -14,7 +14,8 @@ const schema = z.object({
   POSTGRES_USER: z.string().min(1).optional(),
   POSTGRES_PASSWORD: z.string().min(1).optional(),
   POSTGRES_SSL: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
-  POSTGRES_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  // Capped: a run issues two statements plus a 5 s connect, and Vercel cuts the function at 30 s.
+  POSTGRES_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().max(8000).default(8000),
   TRAZABILIDAD_URL: z.string().url().optional(),
   TRAZABILIDAD_SERVICE_KEY: z.string().min(1).optional(),
 });

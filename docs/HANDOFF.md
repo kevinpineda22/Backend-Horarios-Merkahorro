@@ -173,3 +173,13 @@ Search with `mem_search` (use `all_projects: true` if needed), then `mem_get_obs
 - **Remaining for 4b:** settings routes (admin GET/PUT), mount `/sugerido` in `src/routes.js` with lazy pg pool and Supabase (no network at import), end-to-end integration test with fakes. Then F2 (frontend), unit 6 (backtest), `sdd-verify`, `sdd-archive`.
 - Engram `sdd/sugerido-cajeras/apply-progress` (#580) was truncated by an earlier agent. Treat `tasks` (#579), `delivery` (#581), git history and this file as the source of truth.
 - This file is **not committed yet**. Commit it with unit 4a.
+
+## STATUS UPDATE 2 (2026-10-29, unit 4b done) - latest
+
+- **Unit 4b is code-complete and uncommitted** on `feat/sugerido-api` (on top of 4a `c1e7853` and this handoff `c7a6728`): **476/476** tests (`npm test`). Needs a fresh review, then commit, fast-forward `main`, push.
+- **4.3 settings:** admin-only `GET /api/sugerido/settings` and `PUT /api/sugerido/settings` (same router as the rest; order authenticate, loadAccess, requireRole admin, validate). Partial patch, zod ranges, unknown keys dropped, 400 keeps the stored value, next run uses it, past runs keep their snapshot.
+- **4.4 mount:** `src/modules/sugerido/sugerido.module.js` composes the module; `src/routes.js` mounts it at `/sugerido` with the SAME `empleadosService` as `/empleados` (one cache). Pool and Supabase are lazy: importing the app opens no pg pool (guarded by `test/sugerido/import-no-pool.test.js`).
+- Missing `POSTGRES_*` is 503 `SALES_DB_UNAVAILABLE` on `POST .../runs`; missing `TRAZABILIDAD_*` is 503 `STAFF_SOURCE_UNAVAILABLE`; neither crashes boot.
+- New tests: `settings.routes.test.js`, `wiring.test.js`, `import-no-pool.test.js`, `integration.test.js` (HTTP end to end with fakes); two review leftovers in `service.test.js` (Bogota/UTC week boundary, orphan override ordering). Slot sort now uses a plain string comparison.
+- Gotcha: slot headcounts are not trimmed by weekly hours. The 42 + 12 h cap shows up in `capacity` (`weeklyShortfall`, `overtimeNeeded`), not per slot.
+- **Remaining:** F2b (Accesos screen), F2c (sugerido panel and settings form), unit 6 (backtest), `sdd-verify`, `sdd-archive`. F2a is already committed on the frontend branch `juan` (affb7c86).

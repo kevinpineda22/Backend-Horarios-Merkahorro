@@ -41,6 +41,9 @@ const orphanOverrideSlots = (day, overrides) => {
     }));
 };
 
+// 'HH:MM' zero-padded strings order correctly with a plain comparison (no locale involved).
+const byFranja = (a, b) => (a.franja < b.franja ? -1 : a.franja > b.franja ? 1 : 0);
+
 const emptyWeek = (sedeId, weekStart) => ({ sedeId, weekStart, run: null, freshness: null, flags: null, warnings: [], days: [] });
 
 /**
@@ -65,7 +68,7 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
       slots: [
         ...d.slots.map(({ diff, ...slot }) => ({ ...slot, difference: diff })),
         ...orphanOverrideSlots(d, overrides),
-      ].sort((a, b) => a.franja.localeCompare(b.franja)),
+      ].sort(byFranja),
     }));
 
     return {
@@ -100,6 +103,16 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
     /** Active sedes the caller may see: admins and all-sedes callers get all, scoped callers their own. */
     async listSedes(access) {
       return (await suggestionsRepo.listSedes()).filter((s) => canAccessSede(access, s.sedeId));
+    },
+
+    /** Global tunable parameters (admin-only at the route). */
+    getSettings() {
+      return settingsRepo.getSettings();
+    },
+
+    /** Partial update. The patch is already validated; the repo stamps who and when. */
+    updateSettings(user, patch) {
+      return settingsRepo.updateSettings(patch, user.id);
     },
 
     async computeRun(user, sedeId, weekStart) {

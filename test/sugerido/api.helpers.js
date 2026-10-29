@@ -78,20 +78,68 @@ export function fakeSuggestions(sedes = [
 }
 
 /** Full dependency set with spies. `state` fields can be mutated between calls. */
-export function makeDeps({ history = buildHistory(), pool = POOL, absences = { absences: [], warnings: [] }, settings = SETTINGS, sedes } = {}) {
+export function makeDeps({ history = buildHistory(), pool = POOL, absences = { absences: [], warnings: [] }, settings = SETTINGS, sedes, absencesPort } = {}) {
   const state = { history, pool, absences, settings, now: new Date("2026-11-21T15:00:00Z") };
-  const calls = { sales: [], staff: [], absences: [], settings: 0 };
+  const calls = { sales: [], staff: [], absences: [], settings: 0, updateSettings: [] };
   const settle = (v) => (v instanceof Error ? Promise.reject(v) : Promise.resolve(v));
   const suggestionsRepo = fakeSuggestions(sedes);
   const deps = {
     suggestionsRepo,
-    settingsRepo: { async getSettings() { calls.settings += 1; return { ...state.settings }; } },
+    settingsRepo: {
+      async getSettings() { calls.settings += 1; return { ...state.settings }; },
+      // Same contract as createSettingsRepo.updateSettings: partial patch, audit fields set by the repo.
+      async updateSettings(patch, userId) {
+        calls.updateSettings.push(structuredClone({ patch, userId }));
+        state.settings = { ...state.settings, ...patch, updatedBy: userId, updatedAt: "2026-11-21T15:00:00Z" };
+        return { ...state.settings };
+      },
+    },
     salesRepo: { async loadSlotHistory(args) { calls.sales.push(args); return settle(state.history); } },
     staffPort: { async getCashierPool(sedeId) { calls.staff.push(sedeId); return settle(state.pool.map ? state.pool.map((cedula) => ({ cedula })) : state.pool); } },
-    absencesPort: { async getAbsences(args) { calls.absences.push(args); return settle(state.absences); } },
+    absencesPort: absencesPort ?? { async getAbsences(args) { calls.absences.push(args); return settle(state.absences); } },
     now: () => state.now,
   };
   return { deps, state, calls, repo: suggestionsRepo };
 }
 
 export const USER = { id: "u-planner" };
+
+const TOKENS = { "t-admin": "u-admin", "t-planner": "u-planner", "t-viewer": "u-viewer", "t-norole": "u-norole" };
+const ACCESS = {
+  "u-admin": { role: "admin", sede_ids: null },
+  "u-planner": { role: "planner", sede_ids: ["s1"] },
+  "u-viewer": { role: "viewer", sede_ids: ["s1"] },
+};
+
+/** Serves the sugerido router (fakes + fake auth) on an ephemeral port; `call(method, path, token, json)`. */
+export async function withSugeridoApp(opts, fn) {
+  process.env.NODE_ENV = "test";
+  const { createApp } = await import("../../src/app.js");
+  const { createRoutes } = await import("../../src/routes.js");
+  const { createAuthenticate } = await import("../../src/shared/http/authSupabase.js");
+  const { createSugeridoRouter } = await import("../../src/modules/sugerido/sugerido.routes.js");
+  const { createSugeridoService } = await import("../../src/modules/sugerido/sugerido.service.js");
+
+  const ctx = makeDeps(opts);
+  const router = createSugeridoRouter({
+    authenticate: createAuthenticate({ verifyToken: async (t) => (TOKENS[t] ? { id: TOKENS[t], email: `${TOKENS[t]}@x.co` } : null) }),
+    accessRepo: { findByUserId: async (id) => ACCESS[id] ?? null },
+    service: createSugeridoService(ctx.deps),
+  });
+  const server = createApp({ routes: createRoutes({ modules: { "/sugerido": router } }) }).listen(0);
+  await new Promise((r) => server.once("listening", r));
+  const base = `http://127.0.0.1:${server.address().port}/api/sugerido`;
+  const call = async (method, path, token, json) => {
+    const res = await fetch(base + path, {
+      method,
+      headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(json !== undefined ? { "content-type": "application/json" } : {}) },
+      body: json !== undefined ? JSON.stringify(json) : undefined,
+    });
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  try {
+    await fn({ ...ctx, call });
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+}

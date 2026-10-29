@@ -321,3 +321,36 @@ test("an override on a slot with no suggestion is stored with suggestedAtEdit nu
   assert.deepEqual([slot.suggested, slot.override, slot.final], [null, 2, 2]);
   assert.deepEqual(slotOf(view, WEEK, "22:00").final, 2);
 });
+
+test("the week range follows the Bogota date, not UTC: Sunday night in Bogota is still the previous week", async () => {
+  // 2026-11-23T03:00:00Z is Sunday 2026-11-22 22:00 in Bogota, so the current Monday is 2026-11-16.
+  const { service, state } = setup();
+  state.now = new Date("2026-11-23T03:00:00Z");
+  const latest = addDays("2026-11-16", 12 * 7); // 2027-02-08
+  await service.getWeek(USER, "s1", latest);
+  await rejectsWith(service.getWeek(USER, "s1", addDays(latest, 7)), 400, "WEEK_OUT_OF_RANGE");
+  await rejectsWith(service.computeRun(USER, "s1", addDays(latest, 7)), 400, "WEEK_OUT_OF_RANGE");
+  // Just after Bogota midnight (05:00Z) the new week has started and the window moves with it.
+  state.now = new Date("2026-11-23T05:00:00Z");
+  await service.getWeek(USER, "s1", addDays(latest, 7));
+});
+
+test("orphan overrides before, between and after the suggested slots keep the slots ordered, without duplicates", async () => {
+  const { service } = setup();
+  await service.computeRun(USER, "s1", WEEK); // suggested slots 08:00..20:00
+  const view = await service.saveOverrides(USER, "s1", WEEK, [
+    { fecha: WEEK, franja: "06:00", value: 1 }, // before the first suggested slot
+    { fecha: WEEK, franja: "07:45", value: 2 },
+    { fecha: WEEK, franja: "08:00", value: 5 }, // on an existing slot
+    { fecha: WEEK, franja: "21:30", value: 1 }, // after the last one
+  ]);
+  const franjas = view.days.find((d) => d.fecha === WEEK).slots.map((s) => s.franja);
+
+  assert.deepEqual(franjas.slice(0, 4), ["06:00", "07:45", "08:00", "08:15"]);
+  assert.equal(franjas.at(-1), "21:30");
+  assert.equal(franjas.length, SLOTS_PER_OPEN_DAY + 3);
+  assert.equal(new Set(franjas).size, franjas.length);
+  assert.deepEqual(franjas, [...franjas].sort());
+  assert.deepEqual([slotOf(view, WEEK, "08:00").suggested, slotOf(view, WEEK, "08:00").override, slotOf(view, WEEK, "08:00").final], [3, 5, 5]);
+  assert.deepEqual([slotOf(view, WEEK, "06:00").suggested, slotOf(view, WEEK, "06:00").final], [null, 1]);
+});

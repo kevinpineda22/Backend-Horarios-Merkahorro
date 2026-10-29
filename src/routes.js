@@ -14,6 +14,8 @@ import { createEmpleadosService } from "./modules/empleados/empleados.service.js
 import { createSedeAliasRepo } from "./modules/empleados/sedeAliases.supabase.js";
 import { createLazyTrazabilidadClient } from "./modules/empleados/trazabilidad.client.js";
 import { createAccesosRepo, createProfilesRepo } from "./modules/accesos/accesos.supabase.js";
+import { createSugeridoModule } from "./modules/sugerido/sugerido.module.js";
+import { getPool } from "./shared/db/pg.js";
 
 /**
  * Builds the API router. `modules` maps a mount path to a ready router, so
@@ -41,6 +43,13 @@ const accessRepo = createAccessRepo(lazyClient);
 // EMPLEADOS_CACHE_TTL_MS: non-negative integer in ms; unset/invalid falls back to the service default.
 export const parseTtl = (raw) => (/^\d+$/.test(raw ?? "") ? Number(raw) : undefined);
 
+// One directory service for /empleados and for the sugerido staff port, so they share a single cache.
+const empleadosService = createEmpleadosService({
+  client: createLazyTrazabilidadClient(() => getEnv()),
+  aliasRepo: createSedeAliasRepo(lazyClient),
+  ttlMs: parseTtl(process.env.EMPLEADOS_CACHE_TTL_MS),
+});
+
 export default createRoutes({
   modules: {
     "/novedades": createNovedadesRouter({
@@ -59,11 +68,9 @@ export default createRoutes({
     "/empleados": createEmpleadosRouter({
       authenticate,
       accessRepo,
-      service: createEmpleadosService({
-        client: createLazyTrazabilidadClient(() => getEnv()),
-        aliasRepo: createSedeAliasRepo(lazyClient),
-        ttlMs: parseTtl(process.env.EMPLEADOS_CACHE_TTL_MS),
-      }),
+      service: empleadosService,
     }),
+    // Sales pool and Supabase are created on first use (see sugerido.module.js).
+    "/sugerido": createSugeridoModule({ authenticate, accessRepo, client: lazyClient, empleadosService, getPool }),
   },
 });

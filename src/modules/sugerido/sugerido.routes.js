@@ -2,7 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "../../shared/http/asyncHandler.js";
 import { validate } from "../../shared/http/validate.js";
 import { loadAccess, requireRole, requireSede } from "../../shared/http/authorize.js";
-import { createOverridesBodySchema, weekParamsSchema } from "./sugerido.schemas.js";
+import { createOverridesBodySchema, settingsPatchSchema, weekParamsSchema } from "./sugerido.schemas.js";
 
 /**
  * /api/sugerido. Dependencies are injected so tests run with fakes:
@@ -22,6 +22,20 @@ export function createSugeridoRouter({ authenticate, accessRepo, service }) {
     validate({ params: weekParamsSchema, body: createOverridesBodySchema(req.params.weekStart) })(req, res, next);
 
   router.use(authenticate, loadAccess(accessRepo));
+
+  // Settings are global (not per sede) and admin-only for both read and write.
+  const adminOnly = requireRole("admin");
+  router.get(
+    "/settings",
+    adminOnly,
+    asyncHandler(async (_req, res) => res.json({ data: await service.getSettings() })),
+  );
+  router.put(
+    "/settings",
+    adminOnly,
+    validate({ body: settingsPatchSchema }),
+    asyncHandler(async (req, res) => res.json({ data: await service.updateSettings(req.user, req.body) })),
+  );
 
   router.get(
     "/sedes",
