@@ -32,3 +32,10 @@ test("env: POSTGRES_* and TRAZABILIDAD_URL are optional and parsed", () => {
   assert.equal(env.TRAZABILIDAD_URL, "https://t.example");
   assert.equal(getEnv({ NODE_ENV: "test" }).POSTGRES_HOST, undefined);
 });
+
+// The sales database does not accept SSL; same opt-in rule as Backend-Analitica (POSTGRES_SSLMODE=require).
+test("env: POSTGRES_SSL is off unless explicitly set to true", () => {
+  assert.equal(getEnv({ NODE_ENV: "test" }).POSTGRES_SSL, false);
+  assert.equal(getEnv({ NODE_ENV: "test", POSTGRES_SSL: "false" }).POSTGRES_SSL, false);
+  assert.equal(getEnv({ NODE_ENV: "test", POSTGRES_SSL: "true" }).POSTGRES_SSL, true);
+});
