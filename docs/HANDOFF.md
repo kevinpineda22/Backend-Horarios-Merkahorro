@@ -183,3 +183,13 @@ Search with `mem_search` (use `all_projects: true` if needed), then `mem_get_obs
 - New tests: `settings.routes.test.js`, `wiring.test.js`, `import-no-pool.test.js`, `integration.test.js` (HTTP end to end with fakes); two review leftovers in `service.test.js` (Bogota/UTC week boundary, orphan override ordering). Slot sort now uses a plain string comparison.
 - Gotcha: slot headcounts are not trimmed by weekly hours. The 42 + 12 h cap shows up in `capacity` (`weeklyShortfall`, `overtimeNeeded`), not per slot.
 - **Remaining:** F2b (Accesos screen), F2c (sugerido panel and settings form), unit 6 (backtest), `sdd-verify`, `sdd-archive`. F2a is already committed on the frontend branch `juan` (affb7c86).
+
+## STATUS UPDATE 3 (2026-10-29, unit F2c done) - latest
+
+- **F2c is code-complete and uncommitted** on the frontend branch `juan` (on top of F2a `affb7c86`). `npx vitest run src/pages/horarios_merkahorro`: **211 tests, 13 files, all green**; `npx eslint src/pages/horarios_merkahorro` clean. Needs a browser check and a fresh review before the commit.
+- **F2.4:** `api/sugeridoApi.js` (listSedes, getWeek, runSuggestion, saveOverrides as a bare array with `value: null` to remove, getSettings, updateSettings), `hooks/useSugerido.js` (latest-response guard for loads, in-flight guard for POST), `utils/sugerido.js` (error copy for every code in the README, week analytics), `utils/sugeridoFlows.js` (a POST that answers 500 re-reads the week instead of recomputing).
+- **Sede names:** `GET /sugerido/sedes` now feeds the labels through `hooks/useSedeNames.js`; the hardcoded `SEDE_LABELS` is gone. If the call fails the slug is shown, so Trabajadores and Programación keep working.
+- **F2.5:** `ScheduleView` lost the mock `DEMAND` chart, KPI cards and "Aplicar sugerido" banner; `components/SugeridoPanel.jsx` + `SugeridoDayDetail.jsx` show status bar, real KPIs, a day x hour heatmap (max `final` per hour) and the 15-minute table with batched overrides (one PUT per day). The hardcoded "Horario del negocio" chip was removed from `HorariosShell`.
+- **F2.6:** `components/SugeridoSettingsForm.jsx` (modal, ranges mirror the backend, `utils/sugeridoSettings.js`). The gear button shows only when `GET /sugerido/settings` answers 200.
+- **Open question:** the backend has no "who am I" endpoint, so the frontend infers roles: settings 200 means admin; a 403 `FORBIDDEN_ROLE` on a write (POST run or PUT overrides) flips the panel to read-only for the rest of the session. Consequence: a viewer still sees the Calcular button until the first rejected write. A `GET /me` (role + sedes) would remove the guesswork.
+- **Remaining:** F2b (Accesos screen), unit 6 (backtest), `sdd-verify`, `sdd-archive`.
