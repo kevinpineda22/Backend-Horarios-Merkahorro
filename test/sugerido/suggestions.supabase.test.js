@@ -30,6 +30,21 @@ test("getSede returns the mapping; unknown or bodega-less sede -> 404 SEDE_NOT_M
   await assert.rejects(repoWith({ sugerido_sedes: { data: null, error: new Error("down") } }).getSede("x"), /down/);
 });
 
+test("listSedes returns only active sedes", async () => {
+  const inactive = { ...SEDE, sede_id: "cerrada", activo: false };
+  const { client, log } = fakeSupabase({ tables: { sugerido_sedes: ok([SEDE, inactive]) } });
+  const out = await createSuggestionsRepo(client).listSedes();
+  assert.deepEqual(out.map((s) => s.sedeId), ["villahermosa"]);
+  assert.ok(has(log, "eq", "activo", true), "filtered in the query too");
+});
+
+test("getSede on an inactive sede -> 404 SEDE_NOT_MAPPED", async () => {
+  await assert.rejects(
+    repoWith({ sugerido_sedes: ok({ ...SEDE, activo: false }) }).getSede("villahermosa"),
+    (e) => e.statusCode === 404 && e.code === "SEDE_NOT_MAPPED" && e.expose,
+  );
+});
+
 const RUN_INPUT = {
   sedeId: "villahermosa",
   weekStart: "2026-11-02",

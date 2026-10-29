@@ -42,6 +42,37 @@ export function createNovedadesRepo(client) {
       return unwrap(await q);
     },
 
+    /**
+     * Service-level read for availability: every non-cancelled novedad of a blocking type
+     * whose range overlaps [desde, hasta]. NO user/sede scoping (null-sede rows included).
+     * Paged so a busy week is never silently truncated by the API row cap.
+     */
+    async listActiveOverlapping({ desde, hasta, tipos, pageSize = 1000, maxPages = 50 }) {
+      if (!Array.isArray(tipos)) throw new Error("tipos must be an array");
+      if (tipos.length === 0) return [];
+      const rows = [];
+      // Stop only on an EMPTY page: the server may cap a page below pageSize, so a short page
+      // does not mean "last page". Exceeding maxPages fails loudly instead of truncating.
+      for (let pageNo = 0; ; pageNo++) {
+        if (pageNo >= maxPages) throw new Error(`novedades read exceeded max pages (${maxPages})`);
+        const from = pageNo * pageSize;
+        const page = unwrap(
+          await client
+            .from(TABLE)
+            .select("id, cedula, tipo, fecha_inicio, fecha_fin, anulada")
+            .eq("anulada", false)
+            .lte("fecha_inicio", hasta)
+            .gte("fecha_fin", desde)
+            .in("tipo", tipos)
+            .order("id", { ascending: true })
+            .range(from, from + pageSize - 1),
+        );
+        if (!Array.isArray(page)) throw new Error("Unexpected novedades result");
+        if (page.length === 0) return rows;
+        rows.push(...page);
+      }
+    },
+
     async insert(row) {
       return unwrap(await client.from(TABLE).insert(row).select().single());
     },

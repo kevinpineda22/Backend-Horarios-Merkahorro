@@ -36,14 +36,16 @@ const toSedeDto = (r) => ({ sedeId: r.sede_id, nombre: r.nombre, bodegas: r.bode
 export function createSuggestionsRepo(client) {
   return {
     async listSedes() {
-      const rows = unwrap(await client.from("sugerido_sedes").select("sede_id, nombre, bodegas, activo").order("sede_id", { ascending: true }));
-      return (rows ?? []).map(toSedeDto);
+      const rows = unwrap(
+        await client.from("sugerido_sedes").select("sede_id, nombre, bodegas, activo").eq("activo", true).order("sede_id", { ascending: true }),
+      );
+      return (rows ?? []).filter((r) => r.activo === true).map(toSedeDto);
     },
 
-    /** Unknown sede, or one without bodegas, cannot be forecast: 404 SEDE_NOT_MAPPED. */
+    /** Unknown, inactive, or bodega-less sede cannot be forecast: 404 SEDE_NOT_MAPPED. */
     async getSede(sedeId) {
       const row = unwrap(await client.from("sugerido_sedes").select("sede_id, nombre, bodegas, activo").eq("sede_id", sedeId).maybeSingle());
-      if (!row || !Array.isArray(row.bodegas) || row.bodegas.length === 0) throw notMapped();
+      if (!row || row.activo !== true || !Array.isArray(row.bodegas) || row.bodegas.length === 0) throw notMapped();
       return toSedeDto(row);
     },
 
