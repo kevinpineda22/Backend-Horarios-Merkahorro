@@ -1,0 +1,13 @@
+-- Bootstrap the FIRST admin of the access system. NOT a migration: run once, manually, in the
+-- Supabase SQL editor AFTER 003_accesos.sql. Afterwards admins manage everyone else through
+-- /api/accesos (the API cannot create the first admin: every endpoint requires an admin).
+--
+-- 1. Find the user id (auth.users.id = profiles.user_id):
+--      select user_id, nombre, correo from profiles where correo = 'admin@example.com';
+-- 2. Check the user has no active row (expected: no rows):
+--      select * from sugerido_access where user_id = '<USER_UUID>' and revoked_at is null;
+-- 3. Insert through the RPC (audit actor = the user itself; sede_ids null = every sede):
+select sugerido_access_create('<USER_UUID>'::uuid, 'admin', null, '<USER_UUID>'::uuid);
+--
+-- Rollback (soft revoke is blocked while this is the only admin, so delete the row):
+--   delete from sugerido_access where user_id = '<USER_UUID>' and created_by = user_id;
