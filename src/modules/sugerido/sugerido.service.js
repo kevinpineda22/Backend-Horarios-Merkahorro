@@ -10,7 +10,7 @@ import { isWeekInRange } from "./domain/weekRange.js";
 
 const METHOD = "forecast-blend-v1";
 // Sales history needed before the target week: the longest look-back any domain module walks.
-const HISTORY_LOOKBACK_DAYS = Math.max(
+export const HISTORY_LOOKBACK_DAYS = Math.max(
   HOLIDAY_LOOKBACK_DAYS,
   RECENT_LOOKBACK_DAYS,
   YEAR_OFFSET_DAYS + TREND_WINDOW_DAYS,

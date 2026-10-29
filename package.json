@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "backtest": "node scripts/backtest.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
