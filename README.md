@@ -55,6 +55,8 @@ See `.env.example`. Copy it to `.env` and fill in real values (never commit it).
 | `PORT` | no | Default `3003` |
 | `SUPABASE_URL` | yes | Same Supabase project as the main app |
 | `SUPABASE_SERVICE_KEY` | yes | Secret. Server-side only |
+| `TRAZABILIDAD_URL` | no | Base URL of backend-trazabilidad (employee directory source). Without it `/api/empleados` answers 503 `STAFF_SOURCE_UNAVAILABLE` |
+| `TRAZABILIDAD_SERVICE_KEY` | no | Secret. Sent as `x-api-key` to the trazabilidad service endpoint; must match one of its `SERVICE_API_KEYS` |
 | `CORS_ORIGINS` | no | Comma-separated allowlist. Empty uses the defaults (production domains + `http://localhost:5173/5174`) |
 
 The environment is validated on first use and the server fails fast with a list

@@ -16,6 +16,7 @@ const schema = z.object({
   POSTGRES_SSL: z.enum(["true", "false"]).default("true").transform((v) => v === "true"),
   POSTGRES_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   TRAZABILIDAD_URL: z.string().url().optional(),
+  TRAZABILIDAD_SERVICE_KEY: z.string().min(1).optional(),
 });
 
 // Offline defaults so `npm test` never needs real credentials.
