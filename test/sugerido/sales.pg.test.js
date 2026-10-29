@@ -53,7 +53,8 @@ test("SQL is parameterized, text-cast, multi-bodega and read-only", async () => 
   assert.match(q.sql, /SUM\(venta\)/i);
   assert.ok(!q.sql.includes("00201") && !q.sql.includes("2026"), "no interpolated values");
   const m = log.find((l) => /max\(fecha\)/i.test(l.sql));
-  assert.deepEqual(m.params, [["00201", "PV002"]]);
+  assert.deepEqual(m.params, [["00201", "PV002"], "2026-10-26"]);
+  assert.match(m.sql, /fecha <= \$2::date/);
   assert.match(m.sql, /max\(fecha\)::text/i);
   assert.match(m.sql, /WHERE bodega = ANY\(\$1::text\[\]\)/);
   const stmts = log.filter((l) => l.sql).map((l) => l.sql);

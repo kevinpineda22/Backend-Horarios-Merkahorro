@@ -34,6 +34,28 @@ const toSedeDto = (r) => ({ sedeId: r.sede_id, nombre: r.nombre, bodegas: r.bode
 
 /** Sedes, suggestion runs and overrides over Supabase (client injected; fakes in tests). */
 export function createSuggestionsRepo(client) {
+  async function withSlots(run) {
+    if (!run) return null;
+    const slots = unwrap(
+      await client.from("sugerido_slots").select("*").eq("run_id", run.id).order("fecha", { ascending: true }).order("franja", { ascending: true }),
+    );
+    return {
+      id: run.id,
+      sedeId: run.sede_id,
+      weekStart: run.week_start,
+      version: run.version,
+      method: run.method,
+      settings: run.settings,
+      inputs: run.inputs,
+      flags: run.flags,
+      warnings: run.warnings,
+      dataAsOf: run.data_as_of,
+      createdBy: run.created_by,
+      createdAt: run.created_at,
+      slots: (slots ?? []).map(toSlot),
+    };
+  }
+
   return {
     async listSedes() {
       const rows = unwrap(
@@ -82,35 +104,23 @@ export function createSuggestionsRepo(client) {
 
     /** Highest-version run of a sede/week with its slots, or null when none exists. */
     async getLatestRun(sedeId, weekStart) {
-      const run = unwrap(
-        await client
-          .from("sugerido_runs")
-          .select("*")
-          .eq("sede_id", sedeId)
-          .eq("week_start", weekStart)
-          .order("version", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
+      return withSlots(
+        unwrap(
+          await client
+            .from("sugerido_runs")
+            .select("*")
+            .eq("sede_id", sedeId)
+            .eq("week_start", weekStart)
+            .order("version", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ),
       );
-      if (!run) return null;
-      const slots = unwrap(
-        await client.from("sugerido_slots").select("*").eq("run_id", run.id).order("fecha", { ascending: true }).order("franja", { ascending: true }),
-      );
-      return {
-        id: run.id,
-        sedeId: run.sede_id,
-        weekStart: run.week_start,
-        version: run.version,
-        method: run.method,
-        settings: run.settings,
-        inputs: run.inputs,
-        flags: run.flags,
-        warnings: run.warnings,
-        dataAsOf: run.data_as_of,
-        createdBy: run.created_by,
-        createdAt: run.created_at,
-        slots: (slots ?? []).map(toSlot),
-      };
+    },
+
+    /** One specific run (e.g. the one saveRun just returned) with its slots, or null when it does not exist. */
+    async getRunById(runId) {
+      return withSlots(unwrap(await client.from("sugerido_runs").select("*").eq("id", runId).maybeSingle()));
     },
 
     async getOverrides(sedeId, { desde, hasta }) {

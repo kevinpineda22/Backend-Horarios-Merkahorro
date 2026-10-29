@@ -1,8 +1,8 @@
 import { dayType, getHoliday, referenceDates } from "./calendar.js";
 import { addDays, weekDates } from "./dates.js";
 
-const TREND_WINDOW_DAYS = 28;
-const YEAR_OFFSET_DAYS = 364; // 52 weeks keeps the same weekday
+export const TREND_WINDOW_DAYS = 28;
+export const YEAR_OFFSET_DAYS = 364; // 52 weeks keeps the same weekday
 const TREND_MIN = 0.7;
 const TREND_MAX = 1.3;
 const REFERENCE_COUNT = 4;

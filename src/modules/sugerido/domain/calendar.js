@@ -4,8 +4,8 @@ import { addDays, isoDow, toEpochDay } from "./dates.js";
 
 const co = new Holidays("CO");
 // Holidays are sparse, so they need a longer walk; regular days keep references recent.
-const RECENT_LOOKBACK_DAYS = 120;
-const HOLIDAY_LOOKBACK_DAYS = 730;
+export const RECENT_LOOKBACK_DAYS = 120;
+export const HOLIDAY_LOOKBACK_DAYS = 730;
 
 // date-holidays lists these as "public" for CO, but they are not national paid holidays.
 const NOT_NATIONAL = new Set(["pascua", "la virgen de chiquinquirá"]);

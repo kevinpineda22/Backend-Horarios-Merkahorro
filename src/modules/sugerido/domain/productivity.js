@@ -1,6 +1,6 @@
 import { addDays } from "./dates.js";
 
-const WINDOW_DAYS = 56; // 8 weeks
+export const PRODUCTIVITY_WINDOW_DAYS = 56; // 8 weeks
 const TOP_SHARE = 0.2; // busiest 20% of slots
 const SLOTS_PER_HOUR = 4;
 
@@ -13,7 +13,7 @@ const round4 = (n) => Math.round(n * 1e4) / 1e4;
  * Returns the docs-weighted mean rate of the busiest 20% slots, or null when no data.
  */
 export function computeProductivity(rows, dataAsOf) {
-  const from = addDays(dataAsOf, -WINDOW_DAYS);
+  const from = addDays(dataAsOf, -PRODUCTIVITY_WINDOW_DAYS);
   const slots = [];
   for (const r of rows) {
     if (!Number.isFinite(r.docs) || !Number.isFinite(r.cajeras)) {

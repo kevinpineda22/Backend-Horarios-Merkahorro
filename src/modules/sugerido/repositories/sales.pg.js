@@ -17,7 +17,8 @@ const HISTORY_SQL = `
    GROUP BY fecha, franja
    ORDER BY fecha, franja`;
 
-const AS_OF_SQL = `SELECT max(fecha)::text AS data_as_of FROM ${TABLE} WHERE bodega = ANY($1::text[])`;
+// Bounded by the loaded range so recomputing a past week sees that week's data horizon.
+const AS_OF_SQL = `SELECT max(fecha)::text AS data_as_of FROM ${TABLE} WHERE bodega = ANY($1::text[]) AND fecha <= $2::date`;
 
 const invalid = () => createHttpError(502, "Los datos de ventas recibidos no son válidos.", "SALES_DATA_INVALID");
 
@@ -43,7 +44,7 @@ async function readHistory(pool, { bodegas, desde, hasta }) {
     client = await pool.connect();
     await client.query("BEGIN READ ONLY");
     const history = await client.query(HISTORY_SQL, [bodegas, desde, hasta]);
-    const asOf = await client.query(AS_OF_SQL, [bodegas]);
+    const asOf = await client.query(AS_OF_SQL, [bodegas, hasta]);
     await client.query("COMMIT");
     client.release();
     return { rows: history.rows, dataAsOf: asOf.rows[0]?.data_as_of ?? null };

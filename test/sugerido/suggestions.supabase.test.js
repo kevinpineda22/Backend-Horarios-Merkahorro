@@ -203,3 +203,18 @@ test("applyOverrides: empty items skip the rpc; errors propagate; FK -> SEDE_NOT
   await assert.rejects(failWith({ code: "23503" }).applyOverrides(input), (e) => e.code === "SEDE_NOT_MAPPED");
   await assert.rejects(repoWith({}, { sugerido_apply_overrides: ok({ upserted: "x" }) }).applyOverrides(input), /unexpected/i);
 });
+
+test("getRunById reads exactly that run (by id, not the latest) with parsed slots; unknown id -> null", async () => {
+  const { client, log } = fakeSupabase({ tables: { sugerido_runs: ok(RUN_ROW), sugerido_slots: ok(SLOT_ROWS) } });
+  const run = await createSuggestionsRepo(client).getRunById("r1");
+  assert.ok(has(log, "eq", "id", "r1"));
+  assert.ok(has(log, "eq", "run_id", "r1"));
+  assert.equal(log.some((c) => c[0] === "order" && c[1] === "version"), false);
+  assert.equal(run.id, "r1");
+  assert.equal(run.version, 2);
+  assert.equal(run.slots.length, 2);
+  assert.equal(run.slots[0].franja, "08:00");
+  const none = fakeSupabase({ tables: { sugerido_runs: ok(null) } });
+  assert.equal(await createSuggestionsRepo(none.client).getRunById("zz"), null);
+  assert.equal(none.log.some((c) => c[0] === "from" && c[1] === "sugerido_slots"), false);
+});

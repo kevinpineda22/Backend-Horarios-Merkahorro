@@ -47,3 +47,9 @@ test("rows with zero cashiers are skipped, others still count", () => {
 test("rejects non-finite input", () => {
   assert.throws(() => computeProductivity([row("2026-10-20", NaN)], AS_OF), /finite/);
 });
+
+test("the dataAsOf day is excluded even when it holds outlier rows (partial day), the day before counts", () => {
+  const outliers = [row("2026-10-28", 5000, 1), row("2026-10-28", 4000, 1, "11:00")];
+  assert.equal(computeProductivity([...seq(5), ...outliers], AS_OF), 20);
+  assert.equal(computeProductivity([row("2026-10-27", 5000, 1)], AS_OF), 20000);
+});
