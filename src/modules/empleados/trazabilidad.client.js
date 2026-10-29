@@ -54,3 +54,21 @@ export function createTrazabilidadClient({
 
   return { fetchEmpleadosActivos };
 }
+
+/**
+ * Defers reading the configuration and building the client until the first request, so
+ * importing the app never needs credentials or the network. Missing config surfaces as
+ * 503 STAFF_SOURCE_UNAVAILABLE at request time (the client enforces it).
+ */
+export function createLazyTrazabilidadClient(getConfig, options = {}) {
+  let client = null;
+  return {
+    fetchEmpleadosActivos() {
+      if (!client) {
+        const { TRAZABILIDAD_URL, TRAZABILIDAD_SERVICE_KEY } = getConfig();
+        client = createTrazabilidadClient({ baseUrl: TRAZABILIDAD_URL, serviceKey: TRAZABILIDAD_SERVICE_KEY, ...options });
+      }
+      return client.fetchEmpleadosActivos();
+    },
+  };
+}

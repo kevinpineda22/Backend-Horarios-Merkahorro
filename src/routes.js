@@ -8,6 +8,11 @@ import { createNovedadesService } from "./modules/novedades/novedades.service.js
 import { createNovedadesRepo } from "./modules/novedades/novedades.supabase.js";
 import { createAccesosRouter } from "./modules/accesos/accesos.routes.js";
 import { createAccesosService } from "./modules/accesos/accesos.service.js";
+import { getEnv } from "./config/env.js";
+import { createEmpleadosRouter } from "./modules/empleados/empleados.routes.js";
+import { createEmpleadosService } from "./modules/empleados/empleados.service.js";
+import { createSedeAliasRepo } from "./modules/empleados/sedeAliases.supabase.js";
+import { createLazyTrazabilidadClient } from "./modules/empleados/trazabilidad.client.js";
 import { createAccesosRepo, createProfilesRepo } from "./modules/accesos/accesos.supabase.js";
 
 /**
@@ -33,6 +38,9 @@ const lazyClient = {
 };
 const accessRepo = createAccessRepo(lazyClient);
 
+// EMPLEADOS_CACHE_TTL_MS: non-negative integer in ms; unset/invalid falls back to the service default.
+export const parseTtl = (raw) => (/^\d+$/.test(raw ?? "") ? Number(raw) : undefined);
+
 export default createRoutes({
   modules: {
     "/novedades": createNovedadesRouter({
@@ -46,6 +54,15 @@ export default createRoutes({
       service: createAccesosService({
         repo: createAccesosRepo(lazyClient),
         profilesRepo: createProfilesRepo(lazyClient),
+      }),
+    }),
+    "/empleados": createEmpleadosRouter({
+      authenticate,
+      accessRepo,
+      service: createEmpleadosService({
+        client: createLazyTrazabilidadClient(() => getEnv()),
+        aliasRepo: createSedeAliasRepo(lazyClient),
+        ttlMs: parseTtl(process.env.EMPLEADOS_CACHE_TTL_MS),
       }),
     }),
   },
