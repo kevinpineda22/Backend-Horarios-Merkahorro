@@ -193,3 +193,17 @@ Search with `mem_search` (use `all_projects: true` if needed), then `mem_get_obs
 - **F2.6:** `components/SugeridoSettingsForm.jsx` (modal, ranges mirror the backend, `utils/sugeridoSettings.js`). The gear button shows only when `GET /sugerido/settings` answers 200.
 - **Open question:** the backend has no "who am I" endpoint, so the frontend infers roles: settings 200 means admin; a 403 `FORBIDDEN_ROLE` on a write (POST run or PUT overrides) flips the panel to read-only for the rest of the session. Consequence: a viewer still sees the Calcular button until the first rejected write. A `GET /me` (role + sedes) would remove the guesswork.
 - **Remaining:** F2b (Accesos screen), unit 6 (backtest), `sdd-verify`, `sdd-archive`.
+
+## STATUS UPDATE 4 (2026-10-29, unit 6 backtest done) - latest
+
+- **Backtest (task 6.1) is code-complete and uncommitted** on `feat/backtest` (branched from `main` a9891f3): **486/486** tests. New: `domain/backtest.js` (`aggregateToHour`, `wape`, `summarize`, `backtestWeek`), `test/sugerido/backtest.test.js`, `scripts/backtest.js`, `npm run backtest -- --weeks N [--sede id]`. `HISTORY_LOOKBACK_DAYS` is now exported from the service so the script reuses it. Full report: `docs/backtest-2026-10-29.md`.
+- **Method:** for each of the last 8 complete weeks (2026-08-31 .. 2026-10-19) the forecast uses ONLY history with `fecha < weekStart` (leak test included) through the same `forecastWeek` the service calls; `dataAsOf` = last day with data before the week. Read-only (`BEGIN READ ONLY`), one query per sede, 2-9 s each.
+- **Result: PASS.** Overall WAPE at sede x hour **13.7%** (bias +1.0%, 329,878 docs, 5,518 cells) vs the 20% target (design reference 14.8%).
+  - Sedes: copacabana 11.8, girardota-parque 11.8, villahermosa 13.4, girardota-llano 15.1, las-vegas 15.8, san-juan 16.4, barbosa 16.7. None above 25%.
+  - Weekdays: Mon 14.8, Tue 13.8, Wed 14.5, Thu 12.4, Fri 14.1, **Sat 13.1**, Sun 13.1. None above 25%.
+  - Day type: weekday 13.7, sunday 13.1, holiday 19.6 (67 cells, bias +10.5%, over-forecast).
+  - Worst hours: 20:00 27.9% (bias +6.3%), 07:00 19.8%, 08:00 16.3%. Worst sede x weekday cells: barbosa Mon 22.2%, barbosa Wed 19.5%, girardota-llano Sun 19.3%.
+- **Saturday as its own dayType: not justified.** Saturday WAPE 13.1% vs Mon-Fri 13.9%; bias +1.4%. Splitting would halve the reference pool (4 same-weekday references already) for no accuracy gain. Keep Saturday as "weekday".
+- **Optional tweaks (not implemented, none needed to pass):** (1) the 20:00 hour is the weakest (closing-time cut-offs vary); look at it before changing the model. (2) Holidays over-forecast by about 10%; only 67 cells, low priority. (3) barbosa Monday 22%: check for a sede-specific Monday pattern.
+- **Caveat:** the backtest assumes the run is made on the Monday of the target week with data through Sunday (Sunday treated as partial, like the service). A run made earlier in the previous week would see staler data; rerun with a larger gap if the planner computes ahead.
+- **Remaining:** F2b (Accesos screen), `sdd-verify`, `sdd-archive`.
