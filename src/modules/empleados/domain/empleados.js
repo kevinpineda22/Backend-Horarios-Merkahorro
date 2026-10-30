@@ -51,6 +51,8 @@ export function mapEmpleados(source, aliasMap) {
       nombre: text(raw.nombre),
       cargo: text(raw.cargo),
       sedeId,
+      // The SIESA text as-is: lets the UI name rows whose sede has no alias (sedeId null).
+      sedeNombre: text(raw.sede).replace(/\s+/g, " ") || null,
       activo: true,
       unmappedSede: sedeId === null,
       restriccionOperativa: operativa || null,

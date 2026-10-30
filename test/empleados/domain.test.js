@@ -6,7 +6,7 @@ const ALIASES = new Map([
   ["centro", "sede-1"],
   ["norte", "sede-2"],
 ]);
-const KEYS = ["activo", "cargo", "cedula", "nombre", "restriccionOperativa", "sedeId", "unmappedSede"];
+const KEYS = ["activo", "cargo", "cedula", "nombre", "restriccionOperativa", "sedeId", "sedeNombre", "unmappedSede"];
 
 const row = (o = {}) => ({
   cedula: "00123456",
@@ -26,6 +26,7 @@ test("maps a row with exactly the allowed keys", () => {
       nombre: "Ana Perez",
       cargo: "Cajera",
       sedeId: "sede-1",
+      sedeNombre: "Centro",
       activo: true,
       unmappedSede: false,
       restriccionOperativa: null,
@@ -64,6 +65,14 @@ test("unmapped sede yields sedeId null and unmappedSede true", () => {
     assert.equal(r.sedeId, null);
     assert.equal(r.unmappedSede, true);
   }
+});
+
+test("sedeNombre keeps the SIESA sede text (trimmed, spaces collapsed) so unmapped rows can still be named", () => {
+  const out = (sede) => mapEmpleados([row({ sede })], ALIASES).rows[0];
+  assert.equal(out("  CEDI   Girardota ").sedeNombre, "CEDI Girardota");
+  assert.equal(out("CEDI Girardota").sedeId, null);
+  assert.equal(out("Centro").sedeNombre, "Centro");
+  for (const v of [null, undefined, "", "   ", 5]) assert.equal(out(v).sedeNombre, null, String(v));
 });
 
 test("restriccionOperativa: string kept trimmed, empty or non-string becomes null", () => {

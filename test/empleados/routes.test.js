@@ -22,7 +22,7 @@ const ROWS = [
   { cedula: "222222", nombre: "Luis", cargo: "Cajero", sede: "Norte", activo: true },
   { cedula: "333333", nombre: "Mara", cargo: "Cajera", sede: "Lejana", activo: true },
 ];
-const KEYS = ["activo", "cargo", "cedula", "nombre", "restriccionOperativa", "sedeId", "unmappedSede"];
+const KEYS = ["activo", "cargo", "cedula", "nombre", "restriccionOperativa", "sedeId", "sedeNombre", "unmappedSede"];
 
 async function start({ fail = false } = {}) {
   const accessRepo = { findByUserId: async (id) => ACCESS[id] ?? null };
