@@ -82,7 +82,7 @@ test("RPCs are security invoker, take the week lock and sorted cedula locks", ()
   for (const fn of ["shifts_save_week", "shifts_publish_week"]) {
     const body = fnBody(fn);
     assert.match(body, /security invoker/);
-    assert.match(body, /pg_advisory_xact_lock\(hashtext\('shifts:week:' ?\|\| ?p_sede ?\|\| ?':' ?\|\| ?p_week\)\)/);
+    assert.match(body, /pg_advisory_xact_lock\(hashtext\('shifts:week:' ?\|\| ?p_sede ?\|\| ?':' ?\|\| ?to_char\(p_week, ?'yyyy-mm-dd'\)\)\)/);
     assert.match(body, /for update/);
     assert.match(body, /version_conflict/);
   }

@@ -130,3 +130,47 @@ test("read errors are rethrown", async () => {
   const boom = new Error("db down");
   await assert.rejects(createHorariosRepo(fake({ data: null, error: boom }).client).findSchedule("a", "b"), boom);
 });
+
+// Paging fake: serves `total` rows, honouring the last .range(from, to) call (PostgREST caps pages at 1000).
+function pagedFake(total) {
+  const log = [];
+  const all = Array.from({ length: total }, (_, i) => ({ id: i }));
+  let range = null;
+  const builder = new Proxy({}, {
+    get(_t, prop) {
+      if (prop === "then") {
+        return (res, rej) => {
+          const [from, to] = range ?? [0, total - 1];
+          return Promise.resolve({ data: all.slice(from, Math.min(to, from + 999) + 1), error: null }).then(res, rej);
+        };
+      }
+      return (...args) => {
+        if (prop === "range") range = args;
+        log.push([prop, ...args]);
+        return builder;
+      };
+    },
+  });
+  return { log, client: { from: () => builder } };
+}
+
+test("listShifts pages with .range until a short page so no week is truncated", async () => {
+  const { log, client } = pagedFake(2100);
+  const rows = await createHorariosRepo(client).listShifts(SCHED);
+  assert.equal(rows.length, 2100);
+  assert.deepEqual(log.filter((c) => c[0] === "range"), [["range", 0, 999], ["range", 1000, 1999], ["range", 2000, 2999]]);
+});
+
+test("listShifts asks for one more page when the last page is exactly full", async () => {
+  const { log, client } = pagedFake(1000);
+  const rows = await createHorariosRepo(client).listShifts(SCHED);
+  assert.equal(rows.length, 1000);
+  assert.equal(log.filter((c) => c[0] === "range").length, 2);
+});
+
+test("listShiftsByCedulas pages too", async () => {
+  const { log, client } = pagedFake(1500);
+  const rows = await createHorariosRepo(client).listShiftsByCedulas({ cedulas: ["11111111"], from: "2031-01-05", to: "2031-01-13" });
+  assert.equal(rows.length, 1500);
+  assert.deepEqual(log.filter((c) => c[0] === "range"), [["range", 0, 999], ["range", 1000, 1999]]);
+});

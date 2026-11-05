@@ -106,7 +106,6 @@ test("permissions follow the role and the sede scope", async () => {
   const perms = async (a) => (await fakes().service.get(a, "copacabana", W)).permissions;
   assert.deepEqual(await perms(access.admin), { canEdit: true, canPublish: true });
   assert.deepEqual(await perms(access.planner), { canEdit: true, canPublish: true });
-  assert.deepEqual(await perms(access.plannerOther), { canEdit: false, canPublish: false });
   assert.deepEqual(await perms(access.viewer), { canEdit: false, canPublish: false });
 });
 
@@ -256,4 +255,12 @@ test("history is newest-first, resolves actor names and is empty for an unsaved 
   });
   const empty = await fakes().service.history(access.viewer, "copacabana", W, 25);
   assert.deepEqual(empty, { items: [] });
+});
+
+test("get and history re-check sede access: 403 FORBIDDEN_SEDE before touching the repo", async () => {
+  const { service, repo } = fakes({ schedule: stored() });
+  await assert.rejects(service.get(access.plannerOther, "copacabana", W), code(403, "FORBIDDEN_SEDE"));
+  await assert.rejects(service.history(access.plannerOther, "copacabana", W, 25), code(403, "FORBIDDEN_SEDE"));
+  await assert.rejects(service.get(null, "copacabana", W), code(403, "FORBIDDEN_SEDE"));
+  assert.equal(repo.calls.length, 0);
 });

@@ -6,6 +6,21 @@ const SHIFT_COLUMNS =
   "id, schedule_id, sede_id, siesa_code, cedula, fecha, tipo, start_time, end_time, break_minutes, lunch_start, cargo, observacion, updated_by, updated_at";
 const HISTORY_COLUMNS = "id, shift_id, cedula, fecha, action, schedule_version, actor, at, before, after";
 
+const PAGE_SIZE = 1000;
+
+// PostgREST caps a response at max-rows (1000), silently truncating. Page with .range() until a short page.
+// `build` must return a fresh, deterministically ordered query each call.
+async function fetchAll(build) {
+  const rows = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await build().range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return rows;
+  }
+}
+
 function parseConflicts(details) {
   try {
     const parsed = JSON.parse(details);
@@ -87,29 +102,31 @@ export function createHorariosRepo(client) {
     },
 
     async listShifts(scheduleId) {
-      const { data, error } = await client
-        .from("shifts")
-        .select(SHIFT_COLUMNS)
-        .eq("schedule_id", scheduleId)
-        .order("cedula", { ascending: true })
-        .order("fecha", { ascending: true });
-      if (error) throw error;
-      return data ?? [];
+      return fetchAll(() =>
+        client
+          .from("shifts")
+          .select(SHIFT_COLUMNS)
+          .eq("schedule_id", scheduleId)
+          .order("cedula", { ascending: true })
+          .order("fecha", { ascending: true })
+          .order("id", { ascending: true }),
+      );
     },
 
     /** Shifts of the given cedulas in every sede within [from, to]; optionally skipping one schedule. */
     async listShiftsByCedulas({ cedulas, from, to, excludeScheduleId = null }) {
       if (!cedulas.length) return [];
-      let q = client
-        .from("shifts")
-        .select(SHIFT_COLUMNS)
-        .in("cedula", cedulas)
-        .gte("fecha", from)
-        .lte("fecha", to);
-      if (excludeScheduleId) q = q.neq("schedule_id", excludeScheduleId);
-      const { data, error } = await q;
-      if (error) throw error;
-      return data ?? [];
+      return fetchAll(() => {
+        let q = client
+          .from("shifts")
+          .select(SHIFT_COLUMNS)
+          .in("cedula", cedulas)
+          .gte("fecha", from)
+          .lte("fecha", to)
+          .order("id", { ascending: true });
+        if (excludeScheduleId) q = q.neq("schedule_id", excludeScheduleId);
+        return q;
+      });
     },
 
     saveWeek: ({ sedeId, weekStart, expectedVersion, cedulas, shifts, actor }) =>

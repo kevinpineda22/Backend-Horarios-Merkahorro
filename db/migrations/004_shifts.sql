@@ -110,7 +110,7 @@ declare
   v_new_version int;
   v_conflicts jsonb;
 begin
-  perform pg_advisory_xact_lock(hashtext('shifts:week:' || p_sede || ':' || p_week));
+  perform pg_advisory_xact_lock(hashtext('shifts:week:' || p_sede || ':' || to_char(p_week, 'YYYY-MM-DD')));
   -- Sorted and distinct, so two sedes locking overlapping cedulas cannot deadlock.
   perform pg_advisory_xact_lock(hashtext('shifts:cedula:' || c))
     from (select distinct unnest(p_cedulas) as c order by 1) x;
@@ -233,7 +233,7 @@ declare
   v_sch sede_week_schedules;
   v_noop boolean := false;
 begin
-  perform pg_advisory_xact_lock(hashtext('shifts:week:' || p_sede || ':' || p_week));
+  perform pg_advisory_xact_lock(hashtext('shifts:week:' || p_sede || ':' || to_char(p_week, 'YYYY-MM-DD')));
 
   select * into v_sch from sede_week_schedules where sede_id = p_sede and week_start = p_week for update;
   if not found then

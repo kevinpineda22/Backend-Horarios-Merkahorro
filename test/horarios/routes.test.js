@@ -170,3 +170,13 @@ test("service errors keep their status, code and details", () => {
     assert.equal(b.json.details.blockers.length, 1);
   }, service);
 });
+
+test("PUT accepts expectedVersion null (as 0) and rejects NUL in cargo", () =>
+  withApp(async ({ call, service }) => {
+    const ok = await call("PUT", path("shifts"), "t-planner", { ...SAVE, expectedVersion: null });
+    assert.equal(ok.status, 200);
+    assert.equal(service.calls.find((c) => c[0] === "save")[5].expectedVersion, 0);
+    const bad = await call("PUT", path("shifts"), "t-planner", { ...SAVE, shifts: [{ ...SHIFT, cargo: "a b" }] });
+    assert.equal(bad.status, 400);
+    assert.equal(bad.json.code, "VALIDATION_ERROR");
+  }));

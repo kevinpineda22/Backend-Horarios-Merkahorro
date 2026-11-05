@@ -55,7 +55,7 @@ const forbiddenSede = () => createHttpError(403, "No tienes acceso a esta sede."
  * Shift persistence use cases. Ports:
  *   repo         findSede / findSchedule / listShifts / listShiftsByCedulas / saveWeek / publishWeek / listHistory
  *   profilesRepo findById (names of actors)
- * The routes already filter roles and sedes; the write use cases re-check them so the service is safe on its own.
+ * The routes already filter roles and sedes; every use case re-checks sede access (and writes the role) so the service is safe on its own.
  */
 export function createHorariosService({ repo, profilesRepo }) {
   async function assertSede(sedeId) {
@@ -64,6 +64,10 @@ export function createHorariosService({ repo, profilesRepo }) {
 
   function assertCanWrite(access, sedeId) {
     if (!access || !WRITER_ROLES.includes(access.role)) throw forbiddenRole();
+    if (!canAccessSede(access, sedeId)) throw forbiddenSede();
+  }
+
+  function assertCanRead(access, sedeId) {
     if (!canAccessSede(access, sedeId)) throw forbiddenSede();
   }
 
@@ -109,6 +113,7 @@ export function createHorariosService({ repo, profilesRepo }) {
 
   return {
     async get(access, sedeId, weekStart) {
+      assertCanRead(access, sedeId);
       await assertSede(sedeId);
       const nameOf = nameResolver();
       const schedule = await repo.findSchedule(sedeId, weekStart);
@@ -188,7 +193,8 @@ export function createHorariosService({ repo, profilesRepo }) {
       };
     },
 
-    async history(_access, sedeId, weekStart, limit) {
+    async history(access, sedeId, weekStart, limit) {
+      assertCanRead(access, sedeId);
       await assertSede(sedeId);
       const schedule = await repo.findSchedule(sedeId, weekStart);
       if (!schedule) return { items: [] };
