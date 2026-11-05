@@ -1,0 +1,64 @@
+import { Router } from "express";
+import { asyncHandler } from "../../shared/http/asyncHandler.js";
+import { validate } from "../../shared/http/validate.js";
+import { loadAccess, requireRole, requireSede } from "../../shared/http/authorize.js";
+import { historyQuerySchema, publishBodySchema, saveBodySchema, weekParamsSchema } from "./horarios.schemas.js";
+
+/**
+ * /api/horarios. Dependencies are injected so tests run with fakes:
+ *   authenticate  Express middleware setting req.user
+ *   accessRepo    { findByUserId(userId) } over sugerido_access
+ *   service       createHorariosService(...)
+ * Order per route: authenticate -> loadAccess -> requireRole -> validate -> requireSede(params.sedeId).
+ * A scoped user hitting another sede gets 403 before the service looks the sede up; the
+ * service answers 404 SEDE_NOT_FOUND for admins and unscoped users.
+ */
+export function createHorariosRouter({ authenticate, accessRepo, service }) {
+  const router = Router();
+  const writers = requireRole("admin", "planner");
+  const readers = requireRole("admin", "planner", "viewer");
+  const sede = requireSede((req) => req.params.sedeId);
+  const base = "/sedes/:sedeId/weeks/:weekStart";
+
+  router.use(authenticate, loadAccess(accessRepo));
+
+  router.get(
+    `${base}/shifts`,
+    readers,
+    validate({ params: weekParamsSchema }),
+    sede,
+    asyncHandler(async (req, res) => res.json(await service.get(req.access, req.params.sedeId, req.params.weekStart))),
+  );
+
+  router.put(
+    `${base}/shifts`,
+    writers,
+    validate({ params: weekParamsSchema, body: saveBodySchema }),
+    sede,
+    asyncHandler(async (req, res) =>
+      res.json(await service.save(req.access, req.user, req.params.sedeId, req.params.weekStart, req.body)),
+    ),
+  );
+
+  router.post(
+    `${base}/publish`,
+    writers,
+    validate({ params: weekParamsSchema, body: publishBodySchema }),
+    sede,
+    asyncHandler(async (req, res) =>
+      res.json(await service.publish(req.access, req.user, req.params.sedeId, req.params.weekStart, req.body)),
+    ),
+  );
+
+  router.get(
+    `${base}/history`,
+    readers,
+    validate({ params: weekParamsSchema, query: historyQuerySchema }),
+    sede,
+    asyncHandler(async (req, res) =>
+      res.json(await service.history(req.access, req.params.sedeId, req.params.weekStart, req.query.limit)),
+    ),
+  );
+
+  return router;
+}

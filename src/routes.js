@@ -15,6 +15,9 @@ import { createSedeAliasRepo } from "./modules/empleados/sedeAliases.supabase.js
 import { createLazyTrazabilidadClient } from "./modules/empleados/trazabilidad.client.js";
 import { createAccesosRepo, createProfilesRepo } from "./modules/accesos/accesos.supabase.js";
 import { createSugeridoModule } from "./modules/sugerido/sugerido.module.js";
+import { createHorariosRouter } from "./modules/horarios/horarios.routes.js";
+import { createHorariosService } from "./modules/horarios/horarios.service.js";
+import { createHorariosRepo } from "./modules/horarios/horarios.supabase.js";
 import { getPool } from "./shared/db/pg.js";
 
 /**
@@ -69,6 +72,14 @@ export default createRoutes({
       authenticate,
       accessRepo,
       service: empleadosService,
+    }),
+    "/horarios": createHorariosRouter({
+      authenticate,
+      accessRepo,
+      service: createHorariosService({
+        repo: createHorariosRepo(lazyClient),
+        profilesRepo: createProfilesRepo(lazyClient),
+      }),
     }),
     // Sales pool and Supabase are created on first use (see sugerido.module.js).
     "/sugerido": createSugeridoModule({ authenticate, accessRepo, client: lazyClient, empleadosService, getPool }),

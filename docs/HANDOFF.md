@@ -81,6 +81,8 @@ Expected result: a "Sugerido" panel in Programación that shows required vs. ava
 
 `001_sugerido.sql`, `002_novedades.sql`, `003_accesos.sql`, `db/seeds/sugerido_sedes.sql`. Bootstrap admin: user `4c706a1c-63af-465b-9342-e9fb62b9ac38` (juanmerkahorro@gmail.com), role `admin`, `sede_ids = null`.
 
+Pending (not yet applied): `004_shifts.sql` (shift persistence: schedules, shifts, history, `shifts_save_week` / `shifts_publish_week`, `sugerido_sedes.siesa_code`), then re-run the seed. Rollback: `db/migrations/rollback/004_shifts.down.sql`. Manual checks: `db/verification/004_shifts_verify.sql` (runs inside a transaction and rolls back). API: `/api/horarios/sedes/:sedeId/weeks/:weekStart/{shifts,publish,history}`.
+
 ### Environment variables (names only — never commit values)
 
 | Where | Variable | Notes |
