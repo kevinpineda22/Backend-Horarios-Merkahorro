@@ -77,6 +77,12 @@ test("RPC exceptions map to HTTP errors with details", async () => {
   await rejects(run({ message: "insert violates foreign key", code: "23503" }), 404, "SEDE_NOT_FOUND");
 });
 
+test("conflict times come back as HH:MM like the rest of the API, not Postgres HH:MM:SS", async () => {
+  const raw = [{ cedula: "11111111", fecha: "2031-01-06", otherSedeId: "las-vegas", otherFecha: "2031-01-06", otherStart: "07:30:00", otherEnd: "24:00:00" }];
+  await rejects(save(fake({ data: null, error: { message: "SHIFT_OVERLAP", details: JSON.stringify(raw), code: "P0001" } }).client), 422, "SHIFT_OVERLAP", (e) =>
+    assert.deepEqual(e.details.conflicts, [{ ...raw[0], otherStart: "07:30", otherEnd: "24:00" }]));
+});
+
 test("an unreadable conflict detail still yields a 422 with an empty list", async () => {
   await rejects(save(fake({ data: null, error: { message: "SHIFT_OVERLAP", details: "not json", code: "P0001" } }).client), 422, "SHIFT_OVERLAP", (e) =>
     assert.deepEqual(e.details, { conflicts: [] }));

@@ -21,10 +21,18 @@ async function fetchAll(build) {
   }
 }
 
+// Postgres sends time columns as "HH:MM:SS"; the API speaks "HH:MM" everywhere else.
+const toHHMM = (value) => (typeof value === "string" && /^\d{2}:\d{2}:\d{2}$/.test(value) ? value.slice(0, 5) : value);
+
 function parseConflicts(details) {
   try {
     const parsed = JSON.parse(details);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((c) => {
+      const out = { ...c };
+      for (const key of ["otherStart", "otherEnd"]) if (key in out) out[key] = toHHMM(out[key]);
+      return out;
+    });
   } catch {
     return [];
   }
