@@ -150,11 +150,10 @@ const weekdays8h = (cedula, monday, count = 5, start = "08:00", end = "16:00", b
   days(monday, count).map((d) => work(cedula, d, start, end, brk));
 
 const W1 = "2026-08-31"; // first payroll cut of the new system
-const HOLIDAYS_2026 = [
-  "2026-01-01", "2026-01-12", "2026-03-23", "2026-04-02", "2026-04-03", "2026-05-01", "2026-05-18",
-  "2026-06-08", "2026-06-15", "2026-06-29", "2026-07-20", "2026-08-07", "2026-08-17", "2026-10-12",
-  "2026-11-02", "2026-11-16", "2026-12-08", "2026-12-25",
-];
+// Single source of truth for the 2026 festivos (also asserted against calendar.js by payrollHolidays.test.js).
+const HOLIDAYS_2026 = JSON.parse(
+  readFileSync(new URL("../../test/horarios/fixtures/festivos2026.json", import.meta.url), "utf8"),
+).dates;
 
 const cases = [];
 const add = (name, from, to, employees, shifts, holidays = []) => cases.push({ name, from, to, holidays, employees, shifts });
@@ -207,6 +206,15 @@ add("employee with several concepts across two weeks", "2026-08-10", "2026-08-23
     rest(C3, "2026-08-10"),
   ],
   ["2026-08-17"]);
+add("fractional ordinary-night and extra-night minutes in one week", W1, addDays(W1, 6), [emp()],
+  [
+    work(C1, W1, "00:00", "00:20"),
+    ...["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"].map((d) => work(C1, d, "08:00", "16:00")),
+    work(C1, "2026-09-05", "08:00", "17:40"),
+    work(C1, "2026-09-05", "23:00", "23:20"),
+  ]);
+add("odd span minus break pins floor vs ceil of the centered break", W1, addDays(W1, 6), [emp()],
+  [work(C1, W1, "17:30", "20:31", 30), work(C1, "2026-09-01", "08:00", "12:01", 30)]);
 add("sede code padding and a non-numeric cedula", W1, addDays(W1, 6),
   [{ cedula: "CE123456", siesaCode: "5" }, { cedula: "1234567890123456", siesaCode: "0123" }],
   [work("CE123456", "2026-09-06", "08:00", "12:00"), work("1234567890123456", "2026-09-06", "08:00", "12:00")]);
@@ -268,17 +276,36 @@ function runOld(c) {
     rules: [],
   };
   const rows = stubs.map((stub) => old.calculateEmployeeRow(stub, shifts.filter((s) => s.id_empleado === stub.id)));
+  // calculateEmployeeRow drops the Sunday+festive coincidence and the overlap alert, so read them from
+  // the very same LaborEngine.calculateWeek call it makes.
+  const extras = stubs.map((stub) => {
+    const mine = shifts.filter((s) => s.id_empleado === stub.id);
+    return old.weekStartsBetween(c.from, c.to).map((weekStart) => {
+      const summary = context.LaborEngine.calculateWeek(stub, mine, {
+        weekStart,
+        contextShifts: mine,
+        holidays: context.reportState.holidays,
+        rules: context.reportState.rules,
+      });
+      return {
+        sundayFestiveHours: summary.sundayFestiveCoincidenceHours,
+        hasOverlap: (summary.alerts || []).some((a) => a.startsWith("Tiene turnos superpuestos")),
+      };
+    });
+  });
   const siesa = old.siesaRows(rows);
   return {
-    rows: rows.map((r) => ({
+    rows: rows.map((r, ri) => ({
       cedula: r.cedula,
-      weeks: r.semanas.map((w) => ({
+      weeks: r.semanas.map((w, wi) => ({
         weekStart: w.semana_inicio,
         workedHours: w.horas_trabajadas,
         extras: w.horas_extras,
         nocturnas: w.horas_nocturnas,
         dominicales: w.horas_dominicales,
         festivos: w.horas_festivas,
+        sundayFestiveHours: extras[ri][wi].sundayFestiveHours,
+        hasOverlap: extras[ri][wi].hasOverlap,
       })),
       totals: { extras: r.horas_extras, nocturnas: r.horas_nocturnas, dominicales: r.horas_dominicales, festivos: r.horas_festivas },
     })),

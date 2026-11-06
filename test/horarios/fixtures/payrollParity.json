@@ -114,7 +114,9 @@
         "extras": 0,
         "nocturnas": 0,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -206,7 +208,9 @@
         "extras": 0.02,
         "nocturnas": 0,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -321,7 +325,9 @@
         "extras": 6,
         "nocturnas": 0,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -427,7 +433,9 @@
         "extras": 0,
         "nocturnas": 35,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -506,7 +514,9 @@
         "extras": 0,
         "nocturnas": 2,
         "dominicales": 2,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-09-07",
@@ -514,7 +524,9 @@
         "extras": 0,
         "nocturnas": 8,
         "dominicales": 2,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -615,7 +627,9 @@
         "extras": 0,
         "nocturnas": 4,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -732,7 +746,9 @@
         "extras": 7,
         "nocturnas": 12,
         "dominicales": 0,
-        "festivos": 2
+        "festivos": 2,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -857,7 +873,9 @@
         "extras": 0,
         "nocturnas": 3,
         "dominicales": 11,
-        "festivos": 11
+        "festivos": 11,
+        "sundayFestiveHours": 11,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -998,7 +1016,9 @@
         "extras": 0,
         "nocturnas": 0,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -1090,7 +1110,9 @@
         "extras": 0.02,
         "nocturnas": 0.02,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -1245,7 +1267,9 @@
         "extras": 0,
         "nocturnas": 1.02,
         "dominicales": 0.48,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-09-07",
@@ -1253,7 +1277,9 @@
         "extras": 0,
         "nocturnas": 1,
         "dominicales": 0.53,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -1354,7 +1380,9 @@
         "extras": 0,
         "nocturnas": 9,
         "dominicales": 12,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -1455,7 +1483,9 @@
         "extras": 0,
         "nocturnas": 7.87,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -1543,7 +1573,9 @@
         "extras": 0,
         "nocturnas": 0,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -1590,7 +1622,9 @@
         "extras": 0,
         "nocturnas": 8,
         "dominicales": 6,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -1682,7 +1716,9 @@
         "extras": 0,
         "nocturnas": 3.5,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -1763,7 +1799,9 @@
         "extras": 0,
         "nocturnas": 2,
         "dominicales": 2,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-08-17",
@@ -1771,7 +1809,9 @@
         "extras": 0,
         "nocturnas": 9.5,
         "dominicales": 0,
-        "festivos": 9.5
+        "festivos": 9.5,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -1930,7 +1970,9 @@
         "extras": 2,
         "nocturnas": 0,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -2092,7 +2134,9 @@
         "extras": 0,
         "nocturnas": 2,
         "dominicales": 2,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-10-12",
@@ -2100,7 +2144,9 @@
         "extras": 12,
         "nocturnas": 6,
         "dominicales": 0,
-        "festivos": 14
+        "festivos": 14,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -2245,7 +2291,9 @@
         "extras": 6,
         "nocturnas": 22,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -2491,7 +2539,9 @@
         "extras": 14,
         "nocturnas": 0,
         "dominicales": 8,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-08-17",
@@ -2499,7 +2549,9 @@
         "extras": 0,
         "nocturnas": 30,
         "dominicales": 2,
-        "festivos": 8
+        "festivos": 8,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -2518,7 +2570,9 @@
         "extras": 0,
         "nocturnas": 0,
         "dominicales": 5,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-08-17",
@@ -2526,7 +2580,9 @@
         "extras": 0,
         "nocturnas": 0,
         "dominicales": 5,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -2545,7 +2601,9 @@
         "extras": 0,
         "nocturnas": 0,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-08-17",
@@ -2553,7 +2611,9 @@
         "extras": 0,
         "nocturnas": 0,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -2679,6 +2739,235 @@
    }
   },
   {
+   "name": "fractional ordinary-night and extra-night minutes in one week",
+   "from": "2026-08-31",
+   "to": "2026-09-06",
+   "holidays": [],
+   "employees": [
+    {
+     "cedula": "1012345678",
+     "siesaCode": "3"
+    }
+   ],
+   "shifts": [
+    {
+     "cedula": "1012345678",
+     "sedeId": "003",
+     "fecha": "2026-08-31",
+     "tipo": "TRABAJO",
+     "startTime": "00:00",
+     "endTime": "00:20",
+     "breakMinutes": 0
+    },
+    {
+     "cedula": "1012345678",
+     "sedeId": "003",
+     "fecha": "2026-09-01",
+     "tipo": "TRABAJO",
+     "startTime": "08:00",
+     "endTime": "16:00",
+     "breakMinutes": 0
+    },
+    {
+     "cedula": "1012345678",
+     "sedeId": "003",
+     "fecha": "2026-09-02",
+     "tipo": "TRABAJO",
+     "startTime": "08:00",
+     "endTime": "16:00",
+     "breakMinutes": 0
+    },
+    {
+     "cedula": "1012345678",
+     "sedeId": "003",
+     "fecha": "2026-09-03",
+     "tipo": "TRABAJO",
+     "startTime": "08:00",
+     "endTime": "16:00",
+     "breakMinutes": 0
+    },
+    {
+     "cedula": "1012345678",
+     "sedeId": "003",
+     "fecha": "2026-09-04",
+     "tipo": "TRABAJO",
+     "startTime": "08:00",
+     "endTime": "16:00",
+     "breakMinutes": 0
+    },
+    {
+     "cedula": "1012345678",
+     "sedeId": "003",
+     "fecha": "2026-09-05",
+     "tipo": "TRABAJO",
+     "startTime": "08:00",
+     "endTime": "17:40",
+     "breakMinutes": 0
+    },
+    {
+     "cedula": "1012345678",
+     "sedeId": "003",
+     "fecha": "2026-09-05",
+     "tipo": "TRABAJO",
+     "startTime": "23:00",
+     "endTime": "23:20",
+     "breakMinutes": 0
+    }
+   ],
+   "expected": {
+    "rows": [
+     {
+      "cedula": "1012345678",
+      "weeks": [
+       {
+        "weekStart": "2026-08-31",
+        "workedHours": 42.33,
+        "extras": 0.33,
+        "nocturnas": 0.66,
+        "dominicales": 0,
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
+       }
+      ],
+      "totals": {
+       "extras": 0.33,
+       "nocturnas": 0.66,
+       "dominicales": 0,
+       "festivos": 0
+      }
+     }
+    ],
+    "siesa": [
+     [
+      1012345678,
+      "003",
+      108,
+      "",
+      "",
+      "",
+      0.33,
+      0,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     [
+      1012345678,
+      "003",
+      113,
+      "",
+      "",
+      "",
+      0.66,
+      0,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ]
+    ]
+   }
+  },
+  {
+   "name": "odd span minus break pins floor vs ceil of the centered break",
+   "from": "2026-08-31",
+   "to": "2026-09-06",
+   "holidays": [],
+   "employees": [
+    {
+     "cedula": "1012345678",
+     "siesaCode": "3"
+    }
+   ],
+   "shifts": [
+    {
+     "cedula": "1012345678",
+     "sedeId": "003",
+     "fecha": "2026-08-31",
+     "tipo": "TRABAJO",
+     "startTime": "17:30",
+     "endTime": "20:31",
+     "breakMinutes": 30
+    },
+    {
+     "cedula": "1012345678",
+     "sedeId": "003",
+     "fecha": "2026-09-01",
+     "tipo": "TRABAJO",
+     "startTime": "08:00",
+     "endTime": "12:01",
+     "breakMinutes": 30
+    }
+   ],
+   "expected": {
+    "rows": [
+     {
+      "cedula": "1012345678",
+      "weeks": [
+       {
+        "weekStart": "2026-08-31",
+        "workedHours": 6.03,
+        "extras": 0,
+        "nocturnas": 1.27,
+        "dominicales": 0,
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
+       }
+      ],
+      "totals": {
+       "extras": 0,
+       "nocturnas": 1.27,
+       "dominicales": 0,
+       "festivos": 0
+      }
+     }
+    ],
+    "siesa": [
+     [
+      1012345678,
+      "003",
+      113,
+      "",
+      "",
+      "",
+      1.27,
+      0,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+     ]
+    ]
+   }
+  },
+  {
    "name": "sede code padding and a non-numeric cedula",
    "from": "2026-08-31",
    "to": "2026-09-06",
@@ -2724,7 +3013,9 @@
         "extras": 0,
         "nocturnas": 0,
         "dominicales": 4,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -2743,7 +3034,9 @@
         "extras": 0,
         "nocturnas": 0,
         "dominicales": 4,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -2945,7 +3238,9 @@
         "extras": 4.25,
         "nocturnas": 18.25,
         "dominicales": 9,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        },
        {
         "weekStart": "2026-10-12",
@@ -2953,7 +3248,9 @@
         "extras": 0,
         "nocturnas": 15.5,
         "dominicales": 2.5,
-        "festivos": 6.25
+        "festivos": 6.25,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -3172,7 +3469,9 @@
         "extras": 5.75,
         "nocturnas": 17.5,
         "dominicales": 8.75,
-        "festivos": 17.25
+        "festivos": 17.25,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -3373,7 +3672,9 @@
         "extras": 6.75,
         "nocturnas": 24,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -3548,7 +3849,9 @@
         "extras": 0,
         "nocturnas": 23.75,
         "dominicales": 14.5,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -3687,7 +3990,9 @@
         "extras": 0,
         "nocturnas": 18.5,
         "dominicales": 10.5,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-07-13",
@@ -3695,7 +4000,9 @@
         "extras": 0,
         "nocturnas": 3,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -3843,7 +4150,9 @@
         "extras": 0,
         "nocturnas": 20.75,
         "dominicales": 7,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -4000,7 +4309,9 @@
         "extras": 0,
         "nocturnas": 17.75,
         "dominicales": 4.75,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-12-21",
@@ -4008,7 +4319,9 @@
         "extras": 0,
         "nocturnas": 5.75,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -4130,7 +4443,9 @@
         "extras": 0,
         "nocturnas": 11.75,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -4283,7 +4598,9 @@
         "extras": 0,
         "nocturnas": 22.5,
         "dominicales": 11.5,
-        "festivos": 6.5
+        "festivos": 6.5,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -4507,7 +4824,9 @@
         "extras": 0,
         "nocturnas": 10.5,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-04-27",
@@ -4515,7 +4834,9 @@
         "extras": 0,
         "nocturnas": 17.75,
         "dominicales": 9.25,
-        "festivos": 1.25
+        "festivos": 1.25,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -4694,7 +5015,9 @@
         "extras": 0,
         "nocturnas": 4.75,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-05-11",
@@ -4702,7 +5025,9 @@
         "extras": 0.25,
         "nocturnas": 24,
         "dominicales": 8,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -4861,7 +5186,9 @@
         "extras": 0,
         "nocturnas": 7.5,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -4951,7 +5278,9 @@
         "extras": 0,
         "nocturnas": 20,
         "dominicales": 5.25,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -5108,7 +5437,9 @@
         "extras": 0,
         "nocturnas": 20,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -5198,7 +5529,9 @@
         "extras": 0,
         "nocturnas": 0.25,
         "dominicales": 6.5,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -5310,7 +5643,9 @@
         "extras": 0,
         "nocturnas": 2.5,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -5443,7 +5778,9 @@
         "extras": 0,
         "nocturnas": 3.25,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        },
        {
         "weekStart": "2026-01-26",
@@ -5451,7 +5788,9 @@
         "extras": 0,
         "nocturnas": 7.88,
         "dominicales": 1.25,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -5608,7 +5947,9 @@
         "extras": 4.25,
         "nocturnas": 11.75,
         "dominicales": 9.75,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        },
        {
         "weekStart": "2026-07-20",
@@ -5616,7 +5957,9 @@
         "extras": 0,
         "nocturnas": 1.25,
         "dominicales": 0,
-        "festivos": 11
+        "festivos": 11,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -5826,7 +6169,9 @@
         "extras": 5,
         "nocturnas": 27.75,
         "dominicales": 11.75,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-04-20",
@@ -5834,7 +6179,9 @@
         "extras": 0,
         "nocturnas": 13,
         "dominicales": 4,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -6040,7 +6387,9 @@
         "extras": 0,
         "nocturnas": 11.5,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        },
        {
         "weekStart": "2026-10-05",
@@ -6048,7 +6397,9 @@
         "extras": 0,
         "nocturnas": 23,
         "dominicales": 6,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -6232,7 +6583,9 @@
         "extras": 0,
         "nocturnas": 2,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-10-26",
@@ -6240,7 +6593,9 @@
         "extras": 14,
         "nocturnas": 24.5,
         "dominicales": 17.75,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -6390,7 +6745,9 @@
         "extras": 0,
         "nocturnas": 4.5,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -6516,7 +6873,9 @@
         "extras": 10,
         "nocturnas": 27.25,
         "dominicales": 0,
-        "festivos": 5.75
+        "festivos": 5.75,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -6648,7 +7007,9 @@
         "extras": 0,
         "nocturnas": 3.5,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -6792,7 +7153,9 @@
         "extras": 0,
         "nocturnas": 9.75,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -6900,7 +7263,9 @@
         "extras": 0,
         "nocturnas": 5,
         "dominicales": 1.5,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -7048,7 +7413,9 @@
         "extras": 0,
         "nocturnas": 20.25,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -7165,7 +7532,9 @@
         "extras": 0,
         "nocturnas": 19.75,
         "dominicales": 0,
-        "festivos": 5.25
+        "festivos": 5.25,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -7313,7 +7682,9 @@
         "extras": 0,
         "nocturnas": 9.75,
         "dominicales": 0,
-        "festivos": 13.25
+        "festivos": 13.25,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -7470,7 +7841,9 @@
         "extras": 0,
         "nocturnas": 6.5,
         "dominicales": 0,
-        "festivos": 1
+        "festivos": 1,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -7598,7 +7971,9 @@
         "extras": 0,
         "nocturnas": 8.5,
         "dominicales": 9,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -7756,7 +8131,9 @@
         "extras": 0,
         "nocturnas": 18,
         "dominicales": 2,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        },
        {
         "weekStart": "2026-04-06",
@@ -7764,7 +8141,9 @@
         "extras": 0,
         "nocturnas": 9.75,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -7937,7 +8316,9 @@
         "extras": 16.5,
         "nocturnas": 30,
         "dominicales": 10.75,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -8134,7 +8515,9 @@
         "extras": 32,
         "nocturnas": 30,
         "dominicales": 22.25,
-        "festivos": 10.25
+        "festivos": 10.25,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -8342,7 +8725,9 @@
         "extras": 0,
         "nocturnas": 18.75,
         "dominicales": 7.5,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -8515,7 +8900,9 @@
         "extras": 0,
         "nocturnas": 25.75,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -8687,7 +9074,9 @@
         "extras": 0,
         "nocturnas": 9.75,
         "dominicales": 0,
-        "festivos": 18.5
+        "festivos": 18.5,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        },
        {
         "weekStart": "2026-04-06",
@@ -8695,7 +9084,9 @@
         "extras": 0,
         "nocturnas": 9,
         "dominicales": 7.5,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -8863,7 +9254,9 @@
         "extras": 0,
         "nocturnas": 12.5,
         "dominicales": 12,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -9029,7 +9422,9 @@
         "extras": 0,
         "nocturnas": 24.25,
         "dominicales": 2.5,
-        "festivos": 6.5
+        "festivos": 6.5,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -9227,7 +9622,9 @@
         "extras": 5.88,
         "nocturnas": 19.63,
         "dominicales": 12,
-        "festivos": 17.25
+        "festivos": 17.25,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -9384,7 +9781,9 @@
         "extras": 0,
         "nocturnas": 2,
         "dominicales": 9.25,
-        "festivos": 14.5
+        "festivos": 14.5,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -9525,7 +9924,9 @@
         "extras": 0,
         "nocturnas": 16,
         "dominicales": 7.25,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -9693,7 +10094,9 @@
         "extras": 4.25,
         "nocturnas": 26.87,
         "dominicales": 2.25,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-03-23",
@@ -9701,7 +10104,9 @@
         "extras": 0,
         "nocturnas": 8.75,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -9860,7 +10265,9 @@
         "extras": 0,
         "nocturnas": 16.25,
         "dominicales": 7.5,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -10008,7 +10415,9 @@
         "extras": 3,
         "nocturnas": 17.25,
         "dominicales": 11,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -10212,7 +10621,9 @@
         "extras": 0,
         "nocturnas": 24.75,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        },
        {
         "weekStart": "2026-01-26",
@@ -10220,7 +10631,9 @@
         "extras": 0,
         "nocturnas": 11,
         "dominicales": 8.75,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -10377,7 +10790,9 @@
         "extras": 0,
         "nocturnas": 25.75,
         "dominicales": 0,
-        "festivos": 4
+        "festivos": 4,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -10507,7 +10922,9 @@
         "extras": 0,
         "nocturnas": 4.75,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -10660,7 +11077,9 @@
         "extras": 0,
         "nocturnas": 4,
         "dominicales": 0,
-        "festivos": 2.75
+        "festivos": 2.75,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-12-28",
@@ -10668,7 +11087,9 @@
         "extras": 0,
         "nocturnas": 14.88,
         "dominicales": 1.75,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -10836,7 +11257,9 @@
         "extras": 0,
         "nocturnas": 10.25,
         "dominicales": 9,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -11000,7 +11423,9 @@
         "extras": 14.63,
         "nocturnas": 27.63,
         "dominicales": 18.75,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -11177,7 +11602,9 @@
         "extras": 0,
         "nocturnas": 21.5,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -11283,7 +11710,9 @@
         "extras": 0,
         "nocturnas": 11.5,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -11445,7 +11874,9 @@
         "extras": 0,
         "nocturnas": 10.25,
         "dominicales": 11.75,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-05-04",
@@ -11453,7 +11884,9 @@
         "extras": 0,
         "nocturnas": 10.75,
         "dominicales": 6,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -11581,7 +12014,9 @@
         "extras": 0,
         "nocturnas": 19.5,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -11734,7 +12169,9 @@
         "extras": 0,
         "nocturnas": 15.75,
         "dominicales": 15.5,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -11934,7 +12371,9 @@
         "extras": 0,
         "nocturnas": 17,
         "dominicales": 9.25,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        },
        {
         "weekStart": "2026-03-02",
@@ -11942,7 +12381,9 @@
         "extras": 0,
         "nocturnas": 5.75,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -12090,7 +12531,9 @@
         "extras": 0,
         "nocturnas": 11,
         "dominicales": 0,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        },
        {
         "weekStart": "2026-10-12",
@@ -12098,7 +12541,9 @@
         "extras": 0,
         "nocturnas": 0.25,
         "dominicales": 0.25,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": false
        }
       ],
       "totals": {
@@ -12228,7 +12673,9 @@
         "extras": 5.5,
         "nocturnas": 25.75,
         "dominicales": 24,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {
@@ -12416,7 +12863,9 @@
         "extras": 25.25,
         "nocturnas": 27,
         "dominicales": 10.25,
-        "festivos": 0
+        "festivos": 0,
+        "sundayFestiveHours": 0,
+        "hasOverlap": true
        }
       ],
       "totals": {

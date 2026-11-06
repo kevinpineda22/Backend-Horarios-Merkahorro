@@ -19,6 +19,8 @@ const pickWeek = (w) => ({
   nocturnas: w.nocturnas,
   dominicales: w.dominicales,
   festivos: w.festivos,
+  sundayFestiveHours: w.sundayFestiveHours,
+  hasOverlap: w.hasOverlap,
 });
 
 test("fixture records its source and has the expected shape", () => {
