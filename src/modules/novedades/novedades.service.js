@@ -39,6 +39,7 @@ function badRange() {
 }
 
 const FILE_LABEL = { adjuntoPath: "El soporte adjunto", firmaPath: "La firma" };
+const FILE_COLUMN = { adjunto: "adjunto_path", firma: "firma_path", historia: "historia_path", soporte: "soporte_path" };
 const RULE_FIELDS = ["tipo", "subtipo", "adjuntoPath", "firmaPath"];
 
 export function createNovedadesService({
@@ -178,7 +179,7 @@ export function createNovedadesService({
       const row = await repo.findById(id);
       if (!row) throw notFound();
       if (!canAccessSede(access, row.sede_id)) throw forbiddenSede();
-      const path = kind === "adjunto" ? row.adjunto_path : row.firma_path;
+      const path = row[FILE_COLUMN[kind]];
       if (!path) throw fileNotFound();
       const url = await requireStorage().createDownloadUrl(path, DOWNLOAD_URL_TTL_SECONDS);
       return { url };

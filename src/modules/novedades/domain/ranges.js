@@ -19,6 +19,8 @@ export function toNovedadDto(row) {
     // Storage paths are internal: clients only learn whether a file exists and fetch it by signed URL.
     hasAdjunto: Boolean(row.adjunto_path),
     hasFirma: Boolean(row.firma_path),
+    hasHistoria: Boolean(row.historia_path),
+    hasSoporte: Boolean(row.soporte_path),
     anulada: row.anulada ?? false,
     anuladaPor: row.anulada_por ?? null,
     anuladaAt: row.anulada_at ?? null,
