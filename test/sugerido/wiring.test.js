@@ -137,3 +137,23 @@ test("the default app mounts /api/sugerido behind authentication (no Supabase, p
     await new Promise((r) => server.close(r));
   }
 });
+
+test("the default app mounts /api/sugerido/service behind the service key, not a user session", async () => {
+  const { default: defaultRoutes } = await import("../../src/routes.js");
+  const previous = process.env.SUGERIDO_CRON_KEY;
+  process.env.SUGERIDO_CRON_KEY = "wiring-test-key";
+  const server = createApp({ routes: defaultRoutes }).listen(0);
+  await new Promise((r) => server.once("listening", r));
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/api/sugerido/service/sedes`;
+    const denied = await fetch(url);
+    assert.deepEqual([denied.status, (await denied.json()).code], [401, "INVALID_SERVICE_KEY"]);
+    delete process.env.SUGERIDO_CRON_KEY;
+    const open = await fetch(url, { headers: { "x-service-key": "wiring-test-key" } });
+    assert.deepEqual([open.status, (await open.json()).code], [503, "SERVICE_KEY_NOT_CONFIGURED"]);
+  } finally {
+    if (previous === undefined) delete process.env.SUGERIDO_CRON_KEY;
+    else process.env.SUGERIDO_CRON_KEY = previous;
+    await new Promise((r) => server.close(r));
+  }
+});

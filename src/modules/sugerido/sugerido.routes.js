@@ -2,6 +2,8 @@ import { Router } from "express";
 import { asyncHandler } from "../../shared/http/asyncHandler.js";
 import { validate } from "../../shared/http/validate.js";
 import { loadAccess, requireRole, requireSede } from "../../shared/http/authorize.js";
+import { createServiceKeyAuth } from "../../shared/http/serviceKey.js";
+import { createSugeridoServiceRouter } from "./sugerido.service.routes.js";
 import { createOverridesBodySchema, settingsPatchSchema, weekParamsSchema } from "./sugerido.schemas.js";
 
 /**
@@ -12,7 +14,12 @@ import { createOverridesBodySchema, settingsPatchSchema, weekParamsSchema } from
  * Order per route: authenticate -> loadAccess -> requireRole -> validate -> requireSede, so a
  * forbidden role never learns about validation details and a bad request never reaches a source.
  */
-export function createSugeridoRouter({ authenticate, accessRepo, service }) {
+export function createSugeridoRouter({
+  authenticate,
+  accessRepo,
+  service,
+  serviceKeyAuth = createServiceKeyAuth({ getKey: () => process.env.SUGERIDO_CRON_KEY }),
+}) {
   const router = Router();
   const writers = requireRole("admin", "planner");
   const readers = requireRole("admin", "planner", "viewer");
@@ -20,6 +27,9 @@ export function createSugeridoRouter({ authenticate, accessRepo, service }) {
   // The body schema depends on the week in the URL (override dates must fall inside it).
   const validateOverrides = (req, res, next) =>
     validate({ params: weekParamsSchema, body: createOverridesBodySchema(req.params.weekStart) })(req, res, next);
+
+  // Machine-to-machine routes (daily recalculation) come first: they use a service key, not a session.
+  router.use("/service", createSugeridoServiceRouter({ serviceKeyAuth, service }));
 
   router.use(authenticate, loadAccess(accessRepo));
 
