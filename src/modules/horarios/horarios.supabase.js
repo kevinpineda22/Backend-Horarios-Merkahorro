@@ -10,7 +10,7 @@ const PAGE_SIZE = 1000;
 
 // PostgREST caps a response at max-rows (1000), silently truncating. Page with .range() until a short page.
 // `build` must return a fresh, deterministically ordered query each call.
-async function fetchAll(build) {
+export async function fetchAll(build) {
   const rows = [];
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await build().range(from, from + PAGE_SIZE - 1);
