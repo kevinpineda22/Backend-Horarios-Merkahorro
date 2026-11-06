@@ -124,7 +124,7 @@ test("computes concepts, the response shape and the SIESA tuple of a Sunday shif
   assert.deepEqual(r.siesa.rows, [[10010001, "003", 103, "", "", "", 8, 0, "", "", "", "", "", "", "", "", "", "", "", ""]]);
   assert.deepEqual(r.siesa.errors, []);
   assert.deepEqual([r.paidCut, r.cut, r.variations], [null, null, null]);
-  assert.deepEqual(r.permissions, { canSaveCut: false, canVoidCut: false });
+  assert.deepEqual(r.permissions, { canSaveCut: true, canVoidCut: true }, "admin without a paid cut in the way");
 });
 
 test("holidays come from the injected calendar and count in festivos", async () => {
