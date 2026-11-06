@@ -101,3 +101,94 @@ export function employeeNovelties(rows, from, to, holidays) {
   }
   return { weeks, totals };
 }
+
+/** The 20 SIESA novelty columns, verbatim from the old export (checked by the parity fixture). */
+export const SIESA_HEADERS = Object.freeze([
+  "CODIGO DEL EMPLEADO (Obligatorio)",
+  "SUCURSAL (Obligatorio)",
+  "CODIGO DEL CONCEPTO (Obligatorio)",
+  "CENTRO DE OPERACION (No obligatorio, Vacío asume el centro de operación del contrato)",
+  "CENTRO DE COSTO (No obligatorio, Vacío asume el centro de costo del contrato)",
+  "FECHA MOVIMIENTO (YYYYMMDD, No obligatorio)",
+  "HORAS (Puede recibir dos decimales con separador punto (.), Obligatorio)",
+  "VALOR (Puede recibir dos decimales con separador punto (.), Obligatorio)",
+  "CANTIDAD (No obligatorio)",
+  "PROYECTO (No obligatorio, Vacío asume el proyecto del contrato)",
+  "NUMERO DE CONTRATO DEL EMPLEADO (No obligatorio, si el empleado tiene 1 contrato activo, se toma este, de lo contrario genera error)",
+  "UNIDAD DE NEGOCIO (No obligatorio, Vacío asume la unidad de negocio del contrato)",
+  "FECHA DE CAUSACION (YYYYMMDD, No obligatorio)",
+  "NUMERO DE CUOTA (No obligatorio)",
+  "FECHA INICIAL (Obligatorio si el concepto es liquidacion por agrupacion, YYYYMMDD)",
+  "FECHA FINAL (Obligatorio si el concepto es liquidacion por agrupacion, YYYYMMDD)",
+  "ID AGRUPACION (Obligatorio si el concepto es liquidacion por agrupacion)",
+  "IND LIQUIDACION (Obligatorio si el concepto es liquidacion por agrupacion, 0 = Sueldo, 1 = Sueldo+Promedio, 2 = Promedio de agrupacion)",
+  "DIAS (No Obligatorio)",
+  "NOTAS (No obligatorio)",
+]);
+
+// Export order of the concepts: 103 Sunday, 105 holiday, 108 extras, 113 night surcharge.
+const SIESA_CONCEPTS = [
+  { code: 103, key: "dominicales" },
+  { code: 105, key: "festivos" },
+  { code: 108, key: "extras" },
+  { code: 113, key: "nocturnas" },
+];
+
+const siesaIdentifier = (value) => {
+  const text = String(value ?? "").trim();
+  return /^\d{1,15}$/.test(text) ? Number(text) : text;
+};
+
+/**
+ * SIESA rows (20 cells each) for lines [{ cedula, siesaCode, weeks: [weekNovelties] }].
+ * Concepts with <= 0 hours are skipped; the same cedula + branch + concept is summed.
+ * The contract number column stays empty (SIESA picks the single active contract).
+ */
+export function siesaTuples(lines) {
+  const grouped = new Map();
+  for (const line of lines) {
+    const cedula = String(line.cedula ?? "").trim();
+    const branch = String(line.siesaCode ?? "").trim().padStart(3, "0");
+    for (const concept of SIESA_CONCEPTS) {
+      const total = roundHours((line.weeks || []).reduce((acc, w) => acc + Number(w[concept.key] || 0), 0));
+      if (total <= 0) continue;
+      const key = [cedula, branch, "", concept.code].join("|");
+      const current = grouped.get(key);
+      if (current) current.hours = roundHours(current.hours + total);
+      else grouped.set(key, { cedula, branch, code: concept.code, hours: total });
+    }
+  }
+  return [...grouped.values()].map((g) => [
+    siesaIdentifier(g.cedula), g.branch, g.code, "", "", "", g.hours, 0, "", "", "",
+    "", "", "", "", "", "", "", "", "",
+  ]);
+}
+
+/** Compares a cut total with the previous one (hours). Mirrors the old analyticsVariation. */
+export function variation(current, previous) {
+  const cur = roundHours(current);
+  if (previous === null || previous === undefined) {
+    return { current: cur, previous: null, delta: null, percent: null, kind: "none", review: false };
+  }
+  const prev = roundHours(previous);
+  const delta = roundHours(cur - prev);
+  if (prev === 0) {
+    return {
+      current: cur,
+      previous: prev,
+      delta,
+      percent: cur === 0 ? 0 : null,
+      kind: cur > 0 ? "new" : "flat",
+      review: cur >= 4,
+    };
+  }
+  const percent = Math.round(((cur - prev) / prev) * 1000) / 10;
+  return {
+    current: cur,
+    previous: prev,
+    delta,
+    percent,
+    kind: delta > 0 ? "up" : delta < 0 ? "down" : "flat",
+    review: Math.abs(delta) >= 4 && Math.abs(percent) >= 25,
+  };
+}
