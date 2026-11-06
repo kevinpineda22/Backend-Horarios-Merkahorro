@@ -41,7 +41,7 @@ export function centeredBreak({ startTime, endTime, breakMinutes = 0 }) {
 }
 
 /** Worked intervals of a TRABAJO row (break removed), clipped to the week window. */
-function workedIntervals(row, weekStart) {
+export function workedIntervals(row, weekStart) {
   const start = absStart(row, weekStart);
   const span = spanMinutes(row.startTime, row.endTime);
   const brk = row.breakMinutes ?? 0;
