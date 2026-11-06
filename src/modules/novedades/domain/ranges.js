@@ -13,6 +13,7 @@ export function toNovedadDto(row) {
     fechaFin: row.fecha_fin,
     observacion: row.observacion ?? null,
     subtipo: row.subtipo ?? null,
+    detalles: row.detalles ?? {},
     sedeId: row.sede_id ?? null,
     sedeNombre: row.sede_nombre ?? null,
     responsableNombre: row.responsable_nombre ?? null,

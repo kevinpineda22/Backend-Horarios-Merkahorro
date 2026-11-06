@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ADJ, FIR, createFakeRepo, createFakeStorage, ID_A, ID_B, ID_C } from "./helpers.js";
+import { ADJ, FIR, HIS, SOP, createFakeRepo, createFakeStorage, ID_A, ID_B, ID_C } from "./helpers.js";
 
 process.env.NODE_ENV = "test";
 
@@ -22,7 +22,7 @@ const ACCESS = {
 const row = (o) => ({ cedula: "1020304050", tipo: "Permisos", fecha_inicio: "2026-11-10", fecha_fin: "2026-11-20", sede_id: "s1", ...o });
 const body = { cedula: "1020304050", tipo: "Vacaciones", fechaInicio: "2026-11-03", fechaFin: "2026-11-14", sedeId: "s1" };
 
-async function start(seed = [], files = [ADJ, FIR]) {
+async function start(seed = [], files = [ADJ, FIR, HIS, SOP]) {
   const repo = createFakeRepo(seed);
   const storage = createFakeStorage(files);
   const router = createNovedadesRouter({
@@ -224,7 +224,7 @@ test("default composition root mounts /api/novedades behind authentication (no n
 });
 
 // ---- subtypes, ARL files and uploads --------------------------------------------------------
-const arlBody = { ...body, tipo: "Incapacidades", subtipo: "ARL", adjuntoPath: ADJ, firmaPath: FIR };
+const arlBody = { ...body, tipo: "Incapacidades", subtipo: "ARL", observacion: "Accidente de trabajo", adjuntoPath: ADJ, firmaPath: FIR, historiaPath: HIS };
 const upBody = { kind: "adjunto", fileName: "incapacidad.pdf", contentType: "application/pdf", size: 2048, sedeId: "s1" };
 
 test("create ARL: 201 with responsable from the session, file flags and no paths in the response", () =>
@@ -242,12 +242,13 @@ test("create ARL: 201 with responsable from the session, file flags and no paths
 
 test("create ARL: missing files are 400 VALIDATION_ERROR with Spanish messages; nothing is stored", () =>
   withApp([], async ({ call, repo }) => {
-    const r = await call("POST", "/", "t-planner", { ...arlBody, adjuntoPath: undefined, firmaPath: undefined });
+    const r = await call("POST", "/", "t-planner", { ...arlBody, adjuntoPath: undefined, firmaPath: undefined, historiaPath: undefined });
     assert.equal(r.status, 400);
     assert.equal(r.json.code, "VALIDATION_ERROR");
     const msgs = Object.fromEntries(r.json.details.map((d) => [d.path, d.message]));
     assert.match(msgs["body.adjuntoPath"], /Debes adjuntar el soporte/);
     assert.match(msgs["body.firmaPath"], /firma del líder/);
+    assert.match(msgs["body.historiaPath"], /historia clínica/);
     assert.equal(repo.rows.length, 0);
   }));
 
@@ -263,12 +264,15 @@ test("create: Estudio and Día de la Familia are rejected; Permisos académicos 
   withApp([], async ({ call }) => {
     assert.equal((await call("POST", "/", "t-planner", { ...body, tipo: "Estudio" })).status, 400);
     assert.equal((await call("POST", "/", "t-planner", { ...body, tipo: "Día de la Familia" })).status, 400);
-    assert.equal((await call("POST", "/", "t-planner", { ...body, tipo: "Permisos académicos" })).status, 201);
+    const acad = { modo: "libre", dias: [{ fecha: "2026-11-03" }, { fecha: "2026-11-14" }], detalle: "Examen final" };
+    assert.equal((await call("POST", "/", "t-planner", { ...body, tipo: "Permisos académicos", detalles: acad })).status, 201);
     assert.equal((await call("POST", "/", "t-planner", { ...body, tipo: "Licencias" })).status, 400);
-    const ok = await call("POST", "/", "t-planner", { ...body, tipo: "Licencias", subtipo: "Remunerada" });
+    const ok = await call("POST", "/", "t-planner", { ...body, tipo: "Licencias", subtipo: "Remunerada", detalles: { dias: 3, motivo: "Calamidad" } });
     assert.equal(ok.status, 201);
     assert.equal(ok.json.data.subtipo, "Remunerada");
-    assert.equal((await call("POST", "/", "t-planner", { ...body, tipo: "Incapacidades", subtipo: "Enfermedad general" })).status, 201);
+    assert.deepEqual(ok.json.data.detalles, { dias: 3, motivo: "Calamidad" });
+    const eg = { ...body, tipo: "Incapacidades", subtipo: "Enfermedad general", observacion: "Reposo", adjuntoPath: ADJ, detalles: { duracion: "Menor o igual a 3 días" } };
+    assert.equal((await call("POST", "/", "t-planner", eg)).status, 201);
   }));
 
 test("create: real sede text is stored for a null-sede employee (admin) and returned", () =>
@@ -292,11 +296,11 @@ test("historical Día de la Familia rows are still listed, read and cancellable 
   }));
 
 test("patch: ARL cross-field rules apply on the merged state (400 with details)", () =>
-  withApp([row({ id: ID_A, tipo: "Incapacidades", subtipo: "Enfermedad general" })], async ({ call }) => {
+  withApp([row({ id: ID_A, tipo: "Incapacidades", subtipo: "Enfermedad general", observacion: "o", adjunto_path: ADJ, detalles: { duracion: "Menor o igual a 3 días" } })], async ({ call }) => {
     const r = await call("PATCH", `/${ID_A}`, "t-planner", { subtipo: "ARL" });
     assert.equal(r.status, 400);
-    assert.deepEqual(r.json.details.map((d) => d.path).sort(), ["body.adjuntoPath", "body.firmaPath"]);
-    const ok = await call("PATCH", `/${ID_A}`, "t-planner", { subtipo: "ARL", adjuntoPath: ADJ, firmaPath: FIR });
+    assert.deepEqual(r.json.details.map((d) => d.path).sort(), ["body.firmaPath", "body.historiaPath"]);
+    const ok = await call("PATCH", `/${ID_A}`, "t-planner", { subtipo: "ARL", firmaPath: FIR, historiaPath: HIS });
     assert.equal(ok.status, 200);
     assert.equal(ok.json.data.responsableNombre, "Paula Planner");
   }));
@@ -359,3 +363,63 @@ test("GET /:id/files/:kind: readers get a short-lived signed URL, scoped by the 
       assert.equal((await call("GET", `/${ID_A}/files/adjunto`, "t-norole")).json.code, "FORBIDDEN_ROLE");
     },
   ));
+
+// ---- detalles, historia and soporte ---------------------------------------------------------
+test("POST /uploads: historia and soporte get server-generated paths with their own suffix", () =>
+  withApp([], async ({ call }) => {
+    const h = await call("POST", "/uploads", "t-planner", { ...upBody, kind: "historia" });
+    assert.equal(h.status, 200);
+    assert.match(h.json.path, /^\d{4}\/\d{2}\/[0-9a-f-]{36}-historia\.pdf$/);
+    const s = await call("POST", "/uploads", "t-planner", { ...upBody, kind: "soporte", contentType: "image/jpeg" });
+    assert.equal(s.status, 200);
+    assert.match(s.json.path, /^\d{4}\/\d{2}\/[0-9a-f-]{36}-soporte\.jpg$/);
+    assert.equal((await call("POST", "/uploads", "t-planner", { ...upBody, kind: "historia", contentType: "image/gif" })).status, 400);
+  }));
+
+test("GET /:id/files/historia|soporte: signed URLs for readers; 404 when the novedad lacks the file", () =>
+  withApp([row({ id: ID_A, tipo: "Permisos", soporte_path: SOP, detalles: { motivo: "m" } }), row({ id: ID_B })], async ({ call }) => {
+    const ok = await call("GET", `/${ID_A}/files/soporte`, "t-viewer");
+    assert.equal(ok.status, 200);
+    assert.ok(ok.json.url.includes(SOP));
+    assert.equal((await call("GET", `/${ID_A}/files/historia`, "t-viewer")).json.code, "NOVEDAD_FILE_NOT_FOUND");
+    assert.equal((await call("GET", `/${ID_B}/files/soporte`, "t-admin")).json.code, "NOVEDAD_FILE_NOT_FOUND");
+    assert.equal((await call("GET", `/${ID_A}/files/otro`, "t-viewer")).status, 400);
+  }));
+
+test("create Permisos: detalles errors come back as body.detalles.<field> in Spanish; unknown keys and non-objects are rejected", () =>
+  withApp([], async ({ call, repo }) => {
+    const permisos = { ...body, tipo: "Permisos" };
+    const missing = await call("POST", "/", "t-planner", permisos);
+    assert.equal(missing.status, 400);
+    assert.deepEqual(missing.json.details, [{ path: "body.detalles.motivo", message: "El motivo del permiso es obligatorio" }]);
+    const unknown = await call("POST", "/", "t-planner", { ...permisos, detalles: { motivo: "m", color: "azul" } });
+    assert.deepEqual(unknown.json.details, [{ path: "body.detalles.color", message: "Campo no permitido: color" }]);
+    const notObject = await call("POST", "/", "t-planner", { ...permisos, detalles: ["x"] });
+    assert.deepEqual(notObject.json.details, [{ path: "body.detalles", message: "detalles debe ser un objeto" }]);
+    const hours = await call("POST", "/", "t-planner", { ...permisos, detalles: { motivo: "m", porHoras: true, horas: [{ fecha: "2026-11-04", inicio: "09:00", fin: "08:00" }] } });
+    assert.deepEqual(hours.json.details.map((d) => d.path), ["body.detalles.horas.0.fin"]);
+    assert.equal(repo.rows.length, 0);
+  }));
+
+test("create Permisos with soporte and hours: 201 with detalles echoed and the soporte flag", () =>
+  withApp([], async ({ call, repo }) => {
+    const detalles = { motivo: "Cita médica", porHoras: true, horas: [{ fecha: "2026-11-04", inicio: "08:00", fin: "10:00" }] };
+    const r = await call("POST", "/", "t-planner", { ...body, tipo: "Permisos", soportePath: SOP, detalles });
+    assert.equal(r.status, 201);
+    assert.deepEqual(r.json.data.detalles, detalles);
+    assert.equal(r.json.data.hasSoporte, true);
+    assert.equal(JSON.stringify(r.json).includes(SOP), false);
+    assert.equal(repo.rows[0].soporte_path, SOP);
+  }));
+
+test("patch: detalles of a legacy row, and the strict rules once tipo/subtipo/detalles are touched", () =>
+  withApp([row({ id: ID_A })], async ({ call }) => {
+    assert.equal((await call("PATCH", `/${ID_A}`, "t-planner", { observacion: "ok" })).status, 200, "legacy row untouched by the new rules");
+    const strict = await call("PATCH", `/${ID_A}`, "t-planner", { detalles: {} });
+    assert.equal(strict.status, 400);
+    assert.deepEqual(strict.json.details.map((d) => d.path), ["body.detalles.motivo"]);
+    const ok = await call("PATCH", `/${ID_A}`, "t-planner", { detalles: { motivo: "Cita" } });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(ok.json.data.detalles, { motivo: "Cita" });
+    assert.equal((await call("PATCH", `/${ID_A}`, "t-planner", { detalles: null })).status, 400);
+  }));

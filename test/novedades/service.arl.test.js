@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ADJ, ADJ2, FIR, FIR2, ID_A, ID_B, createFakeRepo, createFakeStorage } from "./helpers.js";
+import { ADJ, ADJ2, FIR, FIR2, HIS, ID_A, ID_B, createFakeRepo, createFakeStorage } from "./helpers.js";
 
 const { createNovedadesService } = await import("../../src/modules/novedades/novedades.service.js");
 
@@ -12,11 +12,11 @@ const viewer = Object.freeze({ role: "viewer", sedeIds: ["s1"] });
 const user = { id: "user-1", email: "lider@merka.co" };
 
 const base = { cedula: "1020304050", tipo: "Vacaciones", subtipo: null, fechaInicio: "2026-11-03", fechaFin: "2026-11-14", observacion: null, sedeId: "s1", sedeNombre: null, adjuntoPath: null, firmaPath: null };
-const arl = { ...base, tipo: "Incapacidades", subtipo: "ARL", adjuntoPath: ADJ, firmaPath: FIR };
+const arl = { ...base, tipo: "Incapacidades", subtipo: "ARL", observacion: "Accidente de trabajo", adjuntoPath: ADJ, firmaPath: FIR, historiaPath: HIS };
 const row = (o) => ({ cedula: "1020304050", tipo: "Permisos", fecha_inicio: "2026-11-10", fecha_fin: "2026-11-15", sede_id: "s1", created_by: "x", ...o });
-const arlRow = (o) => row({ id: ID_A, tipo: "Incapacidades", subtipo: "ARL", adjunto_path: ADJ, firma_path: FIR, responsable_id: "someone", responsable_nombre: "Otra Persona", ...o });
+const arlRow = (o) => row({ id: ID_A, tipo: "Incapacidades", subtipo: "ARL", observacion: "o", adjunto_path: ADJ, firma_path: FIR, historia_path: HIS, responsable_id: "someone", responsable_nombre: "Otra Persona", ...o });
 
-function make({ seed, files = [ADJ, FIR, ADJ2, FIR2], profiles } = {}) {
+function make({ seed, files = [ADJ, FIR, ADJ2, FIR2, HIS], profiles } = {}) {
   const repo = createFakeRepo(seed);
   const storage = createFakeStorage(files);
   const profilesRepo = { findById: async (id) => (profiles ?? { "user-1": { nombre: "Laura Líder" } })[id] ?? null };
@@ -68,7 +68,8 @@ test("create ARL: responsable comes from the session user (name from profiles), 
   assert.equal(ins.firma_path, FIR);
   assert.equal(ins.responsable_id, "user-1");
   assert.equal(ins.responsable_nombre, "Laura Líder");
-  assert.deepEqual(storage.calls.exists.sort(), [ADJ, FIR].sort());
+  assert.deepEqual(storage.calls.exists.sort(), [ADJ, FIR, HIS].sort());
+  assert.equal(ins.historia_path, HIS);
   assert.equal(data.responsableNombre, "Laura Líder");
   assert.equal(data.hasAdjunto, true);
   assert.equal(data.hasFirma, true);
@@ -86,13 +87,13 @@ test("create ARL: without profile the responsable name falls back to the session
 });
 
 test("create ARL: files that were never uploaded are a 400 on the right field and nothing is inserted", async () => {
-  const { svc, repo } = make({ files: [FIR] });
+  const { svc, repo } = make({ files: [FIR, HIS] });
   const d = await details(svc.create(admin, user, arl));
   assert.deepEqual(d.map((x) => x.path), ["body.adjuntoPath"]);
   assert.match(d[0].message, /adjunto/i);
   await rejects(svc.create(admin, user, arl), 400, "VALIDATION_ERROR");
   const none = make({ files: [] });
-  assert.deepEqual((await details(none.svc.create(admin, user, arl))).map((x) => x.path).sort(), ["body.adjuntoPath", "body.firmaPath"]);
+  assert.deepEqual((await details(none.svc.create(admin, user, arl))).map((x) => x.path).sort(), ["body.adjuntoPath", "body.firmaPath", "body.historiaPath"]);
   assert.equal(repo.calls.insert.length + none.repo.calls.insert.length, 0);
 });
 
@@ -103,7 +104,7 @@ test("create ARL: a realistic storage-js 404 for a missing object yields the 400
   const repo = createFakeRepo();
   const svc = createNovedadesService({ repo, storage: createNovedadesStorage(client), profilesRepo: { findById: async () => null }, now: () => NOW, newId: () => UPLOAD_ID });
   const d = await details(svc.create(admin, user, arl));
-  assert.deepEqual(d.map((x) => x.path).sort(), ["body.adjuntoPath", "body.firmaPath"]);
+  assert.deepEqual(d.map((x) => x.path).sort(), ["body.adjuntoPath", "body.firmaPath", "body.historiaPath"]);
   assert.match(d[0].message, /no se encontró; súbelo de nuevo\./);
   await rejects(svc.create(admin, user, arl), 400, "VALIDATION_ERROR");
   assert.equal(repo.calls.insert.length, 0);
@@ -111,15 +112,15 @@ test("create ARL: a realistic storage-js 404 for a missing object yields the 400
 
 test("create: ARL rules are enforced in the service too (defense in depth)", async () => {
   const { svc, repo } = make();
-  const d = await details(svc.create(admin, user, { ...arl, adjuntoPath: null, firmaPath: null }));
-  assert.deepEqual(d.map((x) => x.path).sort(), ["body.adjuntoPath", "body.firmaPath"]);
+  const d = await details(svc.create(admin, user, { ...arl, adjuntoPath: null, firmaPath: null, historiaPath: null }));
+  assert.deepEqual(d.map((x) => x.path).sort(), ["body.adjuntoPath", "body.firmaPath", "body.historiaPath"]);
   await rejects(svc.create(admin, user, { ...base, tipo: "Incapacidades" }), 400, "VALIDATION_ERROR");
   assert.equal(repo.calls.insert.length, 0);
 });
 
 test("create non-ARL: subtipo and sede_nombre stored; no responsable, no files, no storage lookups", async () => {
   const { svc, repo, storage } = make();
-  const { data } = await svc.create(admin, user, { ...base, tipo: "Licencias", subtipo: "No remunerada", sedeId: null, sedeNombre: "CORPORATIVO GENERAL" });
+  const { data } = await svc.create(admin, user, { ...base, tipo: "Licencias", subtipo: "No remunerada", detalles: { dias: 2, motivo: "Calamidad" }, sedeId: null, sedeNombre: "CORPORATIVO GENERAL" });
   const ins = repo.calls.insert[0];
   assert.equal(ins.subtipo, "No remunerada");
   assert.equal(ins.sede_nombre, "CORPORATIVO GENERAL");
@@ -142,31 +143,33 @@ test("create: existing behaviour intact — Vacaciones without extras stores nul
 });
 
 // ---- update -----------------------------------------------------------------------------------
-test("update: changing subtipo to ARL needs both files (400) and sets the responsable to the current user", async () => {
-  const { svc, repo } = make({ seed: [row({ id: ID_A, tipo: "Incapacidades", subtipo: "Enfermedad general" })] });
+test("update: changing subtipo to ARL needs firma and historia (400) and sets the responsable to the current user", async () => {
+  const eg = row({ id: ID_A, tipo: "Incapacidades", subtipo: "Enfermedad general", observacion: "o", adjunto_path: ADJ, detalles: { duracion: "Menor o igual a 3 días" } });
+  const { svc, repo } = make({ seed: [eg] });
   const d = await details(svc.update(admin, user, ID_A, { subtipo: "ARL" }));
-  assert.deepEqual(d.map((x) => x.path).sort(), ["body.adjuntoPath", "body.firmaPath"]);
+  assert.deepEqual(d.map((x) => x.path).sort(), ["body.firmaPath", "body.historiaPath"]);
   assert.equal(repo.calls.update.length, 0);
 
-  const { data } = await svc.update(admin, user, ID_A, { subtipo: "ARL", adjuntoPath: ADJ, firmaPath: FIR });
+  const { data } = await svc.update(admin, user, ID_A, { subtipo: "ARL", firmaPath: FIR, historiaPath: HIS });
   const { patch } = repo.calls.update[0];
   assert.equal(patch.subtipo, "ARL");
-  assert.equal(patch.adjunto_path, ADJ);
+  assert.equal("adjunto_path" in patch, false, "the incapacidad document is kept");
   assert.equal(patch.firma_path, FIR);
+  assert.equal(patch.historia_path, HIS);
   assert.equal(patch.responsable_id, "user-1");
   assert.equal(patch.responsable_nombre, "Laura Líder");
   assert.equal(data.hasFirma, true);
 });
 
-test("update: leaving ARL clears files and responsable automatically", async () => {
+test("update: leaving ARL for enfermedad general drops firma and responsable but keeps the documents", async () => {
   const { svc, repo } = make({ seed: [arlRow()] });
-  await svc.update(admin, user, ID_A, { subtipo: "Enfermedad general" });
+  await svc.update(admin, user, ID_A, { subtipo: "Enfermedad general", detalles: { duracion: "Mayor a 3 días" } });
   const { patch } = repo.calls.update[0];
   assert.equal(patch.subtipo, "Enfermedad general");
-  assert.equal(patch.adjunto_path, null);
   assert.equal(patch.firma_path, null);
   assert.equal(patch.responsable_id, null);
   assert.equal(patch.responsable_nombre, null);
+  assert.equal("adjunto_path" in patch || "historia_path" in patch, false);
 });
 
 test("update: leaving ARL for another tipo needs an explicit subtipo null", async () => {
@@ -223,7 +226,7 @@ test("update: switching tipo to Incapacidades/Licencias requires a subtipo", asy
   const { svc, repo } = make({ seed: [row({ id: ID_A })] });
   await rejects(svc.update(admin, user, ID_A, { tipo: "Incapacidades" }), 400, "VALIDATION_ERROR");
   await rejects(svc.update(admin, user, ID_A, { tipo: "Licencias", subtipo: "ARL" }), 400, "VALIDATION_ERROR");
-  await svc.update(admin, user, ID_A, { tipo: "Licencias", subtipo: "Remunerada" });
+  await svc.update(admin, user, ID_A, { tipo: "Licencias", subtipo: "Remunerada", detalles: { dias: 2, motivo: "Calamidad" } });
   assert.equal(repo.calls.update[0].patch.subtipo, "Remunerada");
 });
 

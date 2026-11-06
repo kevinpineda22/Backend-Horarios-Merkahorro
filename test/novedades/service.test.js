@@ -105,7 +105,7 @@ test("update: a row cancelled between read and write (repo returns null) is a 40
     repo.rows[0].anulada = true; // concurrent cancel after the read
     return snapshot;
   };
-  await rejects(svc.update(admin, user, ID_A, { tipo: "Permisos académicos" }), 409, "NOVEDAD_CANCELLED");
+  await rejects(svc.update(admin, user, ID_A, { fechaFin: "2026-11-16" }), 409, "NOVEDAD_CANCELLED");
 });
 
 test("write scoping on existing rows: other sede and null-sede rows are forbidden for non-admins", async () => {

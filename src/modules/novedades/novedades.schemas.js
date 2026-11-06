@@ -14,6 +14,7 @@ import {
   isAllowedContentType,
   isValidObjectPath,
 } from "./domain/novedadFiles.js";
+import { validateDetalles } from "./domain/novedadDetalles.js";
 
 const required = (label) => ({ required_error: `${label} es obligatorio` });
 
@@ -67,6 +68,9 @@ const observacion = z
   .nullable()
   .transform((v) => (v == null || v.trim() === "" ? null : v.trim()));
 
+// Per-type details: the shape is validated per tipo (domain/novedadDetalles.js) once the tipo is known.
+const detalles = z.record(z.unknown(), { invalid_type_error: "detalles debe ser un objeto" });
+
 const sedeId = z.string().min(1, "Sede inválida").nullable();
 
 const rangeOk = (d) => !d.fechaInicio || !d.fechaFin || d.fechaFin >= d.fechaInicio;
@@ -84,11 +88,19 @@ export const createNovedadSchema = z
     sedeNombre: sedeNombre.optional().default(null),
     adjuntoPath: objectPath("adjunto").optional().default(null),
     firmaPath: objectPath("firma").optional().default(null),
+    historiaPath: objectPath("historia").optional().default(null),
+    soportePath: objectPath("soporte").optional().default(null),
+    detalles: detalles.optional().default({}),
   })
   .refine(rangeOk, rangeIssue)
   .superRefine((d, ctx) => {
     for (const { path, message } of validateNovedadRules(d)) ctx.addIssue({ code: "custom", path: [path], message });
-  });
+    for (const { path, message } of validateDetalles(d).issues) {
+      ctx.addIssue({ code: "custom", path: path.split(".").map((p) => (/^\d+$/.test(p) ? Number(p) : p)), message });
+    }
+  })
+  // Store the normalized details (trimmed text, optionals dropped, days sorted).
+  .transform((d) => ({ ...d, detalles: validateDetalles(d).data }));
 
 export const patchNovedadSchema = z
   .object({
@@ -102,6 +114,9 @@ export const patchNovedadSchema = z
     sedeNombre,
     adjuntoPath: objectPath("adjunto"),
     firmaPath: objectPath("firma"),
+    historiaPath: objectPath("historia"),
+    soportePath: objectPath("soporte"),
+    detalles,
   })
   .partial()
   .refine((d) => Object.keys(d).length > 0, { message: "Debes enviar al menos un campo" })

@@ -99,3 +99,6 @@ export const ADJ = "2026/11/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-adjunto.pdf";
 export const FIR = "2026/11/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-firma.png";
 export const ADJ2 = "2026/11/aaaaaaaa-5d4a-4b6e-9a1c-0123456789ab-adjunto.png";
 export const FIR2 = "2026/11/bbbbbbbb-5d4a-4b6e-9a1c-0123456789ab-firma.png";
+export const HIS = "2026/11/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-historia.pdf";
+export const HIS2 = "2026/11/cccccccc-5d4a-4b6e-9a1c-0123456789ab-historia.pdf";
+export const SOP = "2026/11/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-soporte.jpg";

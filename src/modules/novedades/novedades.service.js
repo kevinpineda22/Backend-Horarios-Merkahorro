@@ -2,7 +2,8 @@ import { createHttpError } from "../../shared/http/HttpError.js";
 import { canAccessSede } from "../../shared/http/authorize.js";
 import { randomUUID } from "node:crypto";
 import { toNovedadDto } from "./domain/ranges.js";
-import { SUBTIPO_ARL, validateNovedadRules } from "./domain/novedadTypes.js";
+import { SUBTIPO_ARL, allowedFileKeys, validateNovedadRules } from "./domain/novedadTypes.js";
+import { validateDetalles } from "./domain/novedadDetalles.js";
 import { DOWNLOAD_URL_TTL_SECONDS, buildObjectPath } from "./domain/novedadFiles.js";
 
 /**
@@ -38,9 +39,25 @@ function badRange() {
   return validationError([{ path: "fechaFin", message: "fechaFin no puede ser anterior a fechaInicio" }]);
 }
 
-const FILE_LABEL = { adjuntoPath: "El soporte adjunto", firmaPath: "La firma" };
 const FILE_COLUMN = { adjunto: "adjunto_path", firma: "firma_path", historia: "historia_path", soporte: "soporte_path" };
-const RULE_FIELDS = ["tipo", "subtipo", "adjuntoPath", "firmaPath"];
+const FIELD_COLUMN = { adjuntoPath: "adjunto_path", firmaPath: "firma_path", historiaPath: "historia_path", soportePath: "soporte_path" };
+const FILE_LABEL = {
+  adjuntoPath: "El soporte adjunto",
+  firmaPath: "La firma",
+  historiaPath: "La historia clínica",
+  soportePath: "El soporte del permiso",
+};
+const FILE_KEYS = Object.keys(FIELD_COLUMN);
+// Touching any of these re-validates the merged state ("strict": the whole per-type rule set).
+const STRICT_KEYS = ["tipo", "subtipo", "detalles"];
+const RULE_FIELDS = [...STRICT_KEYS, ...FILE_KEYS, "observacion", "fechaInicio", "fechaFin"];
+
+/** Subtipo / file / observation rules plus the per-type details, as one issue list and the normalized details. */
+function stateIssues(state, opts = {}) {
+  const details = validateDetalles(state, { lenient: opts.lenient });
+  const rules = validateNovedadRules(state, { touched: opts.touched });
+  return { issues: [...rules, ...(opts.skipDetalles ? [] : details.issues)], detalles: details.data };
+}
 
 export function createNovedadesService({
   repo,
@@ -75,43 +92,57 @@ export function createNovedadesService({
   }
 
   /**
-   * Subtipo / files / responsable columns for a patch. The ARL rules run on the MERGED state, and only
-   * when the patch touches them, so legacy rows (Incapacidades without subtipo) stay editable.
-   * Leaving ARL clears its files and responsable; entering ARL or replacing the signature makes the
-   * caller the responsable.
+   * Columns derived from the rule-bearing fields of a patch (tipo, subtipo, detalles, files, observacion, dates).
+   * Everything is judged on the MERGED state:
+   *   - strict (the patch touches tipo, subtipo or detalles): the full per-type rule set applies;
+   *   - otherwise (rows may predate the rules): only what the patch touched is judged, and the details are
+   *     re-checked, leniently, only when the dates move.
+   * Carry-over: a new tipo (or a new subtipo of an incapacidad) starts with empty details unless the patch sends
+   * them, and files the new state cannot hold are cleared. Leaving ARL drops its responsable; entering ARL or
+   * replacing the signature makes the caller the responsable.
    */
-  async function subtypeChanges(user, current, patch) {
+  async function ruleChanges(user, current, patch) {
     if (!RULE_FIELDS.some((k) => k in patch)) return {};
     const before = {
       tipo: current.tipo,
       subtipo: current.subtipo ?? null,
+      fechaInicio: current.fecha_inicio,
+      fechaFin: current.fecha_fin,
+      observacion: current.observacion ?? null,
+      detalles: current.detalles ?? {},
       adjuntoPath: current.adjunto_path ?? null,
       firmaPath: current.firma_path ?? null,
+      historiaPath: current.historia_path ?? null,
+      soportePath: current.soporte_path ?? null,
     };
     const after = { ...before };
     for (const k of RULE_FIELDS) if (k in patch) after[k] = patch[k];
-    if (before.subtipo === SUBTIPO_ARL && after.subtipo !== SUBTIPO_ARL) {
-      if (!("adjuntoPath" in patch)) after.adjuntoPath = null;
-      if (!("firmaPath" in patch)) after.firmaPath = null;
-    }
 
-    const issues = validateNovedadRules(after);
-    if (issues.length) throw validationError(issues);
+    const strict = STRICT_KEYS.some((k) => k in patch);
+    const incapacidadSubtipoChanged = after.tipo === "Incapacidades" && after.subtipo !== before.subtipo;
+    if (!("detalles" in patch) && (after.tipo !== before.tipo || incapacidadSubtipoChanged)) after.detalles = {};
+    const allowed = new Set(allowedFileKeys(after));
+    for (const k of FILE_KEYS) if (!(k in patch) && !allowed.has(k)) after[k] = null;
 
-    const adjuntoChanged = after.adjuntoPath !== before.adjuntoPath;
-    const firmaChanged = after.firmaPath !== before.firmaPath;
-    await assertFilesExist({
-      adjuntoPath: adjuntoChanged ? after.adjuntoPath : null,
-      firmaPath: firmaChanged ? after.firmaPath : null,
-    });
+    const checked = strict
+      ? stateIssues(after)
+      : stateIssues(after, {
+          touched: new Set(Object.keys(patch)),
+          lenient: true,
+          skipDetalles: !("fechaInicio" in patch || "fechaFin" in patch),
+        });
+    if (checked.issues.length) throw validationError(checked.issues);
+
+    const changedFiles = FILE_KEYS.filter((k) => after[k] !== before[k]);
+    await assertFilesExist(Object.fromEntries(changedFiles.map((k) => [k, after[k]])));
 
     const changes = {};
     if ("tipo" in patch) changes.tipo = after.tipo;
     if (after.subtipo !== before.subtipo) changes.subtipo = after.subtipo;
-    if (adjuntoChanged) changes.adjunto_path = after.adjuntoPath;
-    if (firmaChanged) changes.firma_path = after.firmaPath;
+    for (const k of changedFiles) changes[FIELD_COLUMN[k]] = after[k];
+    if (strict && JSON.stringify(checked.detalles) !== JSON.stringify(before.detalles)) changes.detalles = checked.detalles;
     if (after.subtipo === SUBTIPO_ARL) {
-      if (before.subtipo !== SUBTIPO_ARL || firmaChanged) Object.assign(changes, await responsableOf(user));
+      if (before.subtipo !== SUBTIPO_ARL || changedFiles.includes("firmaPath")) Object.assign(changes, await responsableOf(user));
     } else if (before.subtipo === SUBTIPO_ARL) {
       changes.responsable_id = null;
       changes.responsable_nombre = null;
@@ -190,12 +221,18 @@ export function createNovedadesService({
       const state = {
         tipo: input.tipo,
         subtipo: input.subtipo ?? null,
+        fechaInicio: input.fechaInicio,
+        fechaFin: input.fechaFin,
+        observacion: input.observacion ?? null,
+        detalles: input.detalles ?? {},
         adjuntoPath: input.adjuntoPath ?? null,
         firmaPath: input.firmaPath ?? null,
+        historiaPath: input.historiaPath ?? null,
+        soportePath: input.soportePath ?? null,
       };
-      const issues = validateNovedadRules(state);
-      if (issues.length) throw validationError(issues);
-      await assertFilesExist({ adjuntoPath: state.adjuntoPath, firmaPath: state.firmaPath });
+      const checked = stateIssues(state);
+      if (checked.issues.length) throw validationError(checked.issues);
+      await assertFilesExist(Object.fromEntries(FILE_KEYS.map((k) => [k, state[k]])));
 
       const draft = {
         cedula: input.cedula,
@@ -206,8 +243,11 @@ export function createNovedadesService({
         observacion: input.observacion ?? null,
         sede_id: input.sedeId ?? null,
         sede_nombre: input.sedeNombre ?? null,
+        detalles: checked.detalles,
         adjunto_path: state.adjuntoPath,
         firma_path: state.firmaPath,
+        historia_path: state.historiaPath,
+        soporte_path: state.soportePath,
         responsable_id: null,
         responsable_nombre: null,
         ...(state.subtipo === SUBTIPO_ARL ? await responsableOf(user) : {}),
@@ -231,7 +271,7 @@ export function createNovedadesService({
       if ("observacion" in patch) changes.observacion = patch.observacion;
       if ("sedeId" in patch) changes.sede_id = patch.sedeId;
       if ("sedeNombre" in patch) changes.sede_nombre = patch.sedeNombre;
-      Object.assign(changes, await subtypeChanges(user, current, patch));
+      Object.assign(changes, await ruleChanges(user, current, patch));
 
       const merged = { ...current, ...changes };
       if (merged.fecha_fin < merged.fecha_inicio) throw badRange();
