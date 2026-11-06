@@ -5,9 +5,11 @@ import { loadAccess, requireRole, requireSede } from "../../shared/http/authoriz
 import {
   anularSchema,
   createNovedadSchema,
+  fileParamsSchema,
   idParamSchema,
   listQuerySchema,
   patchNovedadSchema,
+  uploadSchema,
 } from "./novedades.schemas.js";
 
 /**
@@ -31,6 +33,25 @@ export function createNovedadesRouter({ authenticate, accessRepo, service }) {
     readers,
     validate({ query: listQuerySchema }),
     asyncHandler(async (req, res) => res.json(await service.list(req.access, req.query))),
+  );
+
+  // Files never travel through the API (Vercel body limit): the client uploads straight to the
+  // private bucket with the signed URL returned here. Declared before "/:id" routes.
+  router.post(
+    "/uploads",
+    writers,
+    validate({ body: uploadSchema }),
+    requireSede((req) => req.body.sedeId),
+    asyncHandler(async (req, res) => res.json(await service.createUpload(req.access, req.body))),
+  );
+
+  router.get(
+    "/:id/files/:kind",
+    readers,
+    validate({ params: fileParamsSchema }),
+    asyncHandler(async (req, res) =>
+      res.json(await service.getFileUrl(req.access, req.params.id, req.params.kind)),
+    ),
   );
 
   router.get(

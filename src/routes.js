@@ -6,6 +6,7 @@ import { createAccessRepo } from "./shared/access/access.supabase.js";
 import { createNovedadesRouter } from "./modules/novedades/novedades.routes.js";
 import { createNovedadesService } from "./modules/novedades/novedades.service.js";
 import { createNovedadesRepo } from "./modules/novedades/novedades.supabase.js";
+import { createNovedadesStorage } from "./modules/novedades/novedades.storage.js";
 import { createAccesosRouter } from "./modules/accesos/accesos.routes.js";
 import { createAccesosService } from "./modules/accesos/accesos.service.js";
 import { getEnv } from "./config/env.js";
@@ -43,6 +44,10 @@ export function createRoutes({ modules = {} } = {}) {
 const lazyClient = {
   from: (table) => getSupabase().from(table),
   rpc: (name, args) => getSupabase().rpc(name, args),
+  // Storage API (private buckets, signed URLs); resolved lazily like `from`.
+  get storage() {
+    return getSupabase().storage;
+  },
 };
 const accessRepo = createAccessRepo(lazyClient);
 
@@ -61,7 +66,11 @@ export default createRoutes({
     "/novedades": createNovedadesRouter({
       authenticate,
       accessRepo,
-      service: createNovedadesService({ repo: createNovedadesRepo(lazyClient) }),
+      service: createNovedadesService({
+        repo: createNovedadesRepo(lazyClient),
+        storage: createNovedadesStorage(lazyClient),
+        profilesRepo: createProfilesRepo(lazyClient),
+      }),
     }),
     "/accesos": createAccesosRouter({
       authenticate,
