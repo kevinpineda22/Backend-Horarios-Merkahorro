@@ -102,8 +102,9 @@ test("listCuts reads history newest first, including ANULADO, with a limit", asy
   const rows = await createPayrollRepo(client).listCuts({ limit: 40 });
   assert.deepEqual(rows, [CUT_ROW]);
   assert.ok(has(log, "from", "payroll_cuts"));
-  assert.ok(has(log, "order", "period_start", { ascending: false }));
-  assert.ok(has(log, "order", "id", { ascending: false }));
+  const orders = log.filter((c) => c[0] === "order").map((c) => c[1]);
+  assert.deepEqual(orders, ["period_end", "period_start", "id"], "old order: period_end, period_start, id");
+  assert.ok(log.filter((c) => c[0] === "order").every((c) => c[2]?.ascending === false));
   assert.ok(has(log, "limit", 40));
   assert.equal(log.some((c) => c[0] === "eq" && c[1] === "state"), false, "no state filter");
 });

@@ -95,11 +95,12 @@ export function createPayrollRepo(client) {
     voidCut: ({ id, reason = null, actor }) =>
       rpc(client, "payroll_cut_void", { p_id: id, p_reason: reason ?? null, p_actor: actor }),
 
-    /** Cut history, ANULADO included, newest period first. */
+    /** Cut history, ANULADO included, newest period first (period_end, period_start, id desc). */
     async listCuts({ limit }) {
       const { data, error } = await client
         .from("payroll_cuts")
         .select(CUT_COLUMNS)
+        .order("period_end", { ascending: false })
         .order("period_start", { ascending: false })
         .order("id", { ascending: false })
         .limit(limit);

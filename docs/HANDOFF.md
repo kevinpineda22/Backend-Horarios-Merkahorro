@@ -209,3 +209,12 @@ Search with `mem_search` (use `all_projects: true` if needed), then `mem_get_obs
 - **Optional tweaks (not implemented, none needed to pass):** (1) the 20:00 hour is the weakest (closing-time cut-offs vary); look at it before changing the model. (2) Holidays over-forecast by about 10%; only 67 cells, low priority. (3) barbosa Monday 22%: check for a sede-specific Monday pattern.
 - **Caveat:** the backtest assumes the run is made on the Monday of the target week with data through Sunday (Sunday treated as partial, like the service). A run made earlier in the previous week would see staler data; rerun with a larger gap if the planner computes ahead.
 - **Remaining:** F2b (Accesos screen), `sdd-verify`, `sdd-archive`.
+
+## DEPLOY ORDER (payroll cuts, migration 005)
+
+1. Apply `db/migrations/005_payroll_cuts.sql` (additive: the previous backend is unaffected).
+2. Run the 005 verify script (psql, or a single-transaction editor so the test cuts roll back).
+3. Deploy the backend. It needs the 005 tables/functions: `GET /report` and `GET /cuts` answer 500 without them.
+4. Deploy the frontend.
+
+Rollback: redeploy the previous backend BEFORE running the down script.

@@ -380,7 +380,12 @@ export function createPayrollService({
         );
       }
 
-      const row = await repo.saveCut({ from, to, snapshot: toSnapshot(all, dto.calendar), actor: user.id });
+      const snapshot = toSnapshot(all, dto.calendar);
+      if (!snapshot.lines || snapshot.lines.length === 0) {
+        throw createHttpError(422, "No hay empleados para guardar en este corte.", "PAYROLL_CUT_EMPTY");
+      }
+
+      const row = await repo.saveCut({ from, to, snapshot, actor: user.id });
       const [cut] = await presentCuts([row]);
       return { cut };
     },

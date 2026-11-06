@@ -179,6 +179,18 @@ test("saveCut answers 409 PAYROLL_CUT_OVERLAP with the cut in the way before tou
   assert.equal(calls.save.length, 0);
 });
 
+test("saveCut refuses a cut with no employees: 422 PAYROLL_CUT_EMPTY and nothing is saved", async () => {
+  const { service, calls } = build({ shifts: [], directory: [] });
+  const fingerprint = await fingerprintOf(service);
+  await assert.rejects(service.saveCut(ADMIN, USER, { from: FROM, to: TO, fingerprint }), (e) => {
+    assert.equal(e.statusCode, 422);
+    assert.equal(e.code, "PAYROLL_CUT_EMPTY");
+    assert.equal(e.message, "No hay empleados para guardar en este corte.");
+    return true;
+  });
+  assert.equal(calls.save.length, 0);
+});
+
 test("saveCut recomputes on the server and stores a full snapshot incl. zero-hour employees", async () => {
   const { service, calls } = build(WORKED);
   const fingerprint = await fingerprintOf(service);

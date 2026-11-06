@@ -189,8 +189,10 @@ begin
      where state = 'PAGADO' and daterange(period_start, period_end, '[]') && daterange(p_from, p_to, '[]')
      order by id limit 1;
     raise exception 'PAYROLL_CUT_OVERLAP'
-      using detail = coalesce(
-        jsonb_build_object('id', v_conflict.id, 'from', v_conflict.period_start, 'to', v_conflict.period_end)::text, '{}');
+      using detail = case
+        when v_conflict.id is null then 'null'  -- no PAGADO row found: details.cut is null
+        else jsonb_build_object('id', v_conflict.id, 'from', v_conflict.period_start, 'to', v_conflict.period_end)::text
+      end;
   end;
 
   return to_jsonb(v_cut);

@@ -136,3 +136,8 @@ test("verification script is rolled back, uses far-future dates and covers the c
     assert.ok(v.includes(needle), needle);
   }
 });
+
+test("overlap backstop yields details.cut = null when no PAGADO row is found", () => {
+  assert.ok(!/coalesce\(\s*jsonb_build_object/.test(sql), "no unreachable coalesce around jsonb_build_object");
+  assert.match(sql, /when v_conflict\.id is null then 'null'/);
+});
