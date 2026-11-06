@@ -18,6 +18,9 @@ import { createSugeridoModule } from "./modules/sugerido/sugerido.module.js";
 import { createHorariosRouter } from "./modules/horarios/horarios.routes.js";
 import { createHorariosService } from "./modules/horarios/horarios.service.js";
 import { createHorariosRepo } from "./modules/horarios/horarios.supabase.js";
+import { createPayrollRouter } from "./modules/horarios/payroll.routes.js";
+import { createPayrollService } from "./modules/horarios/payroll.service.js";
+import { createPayrollRepo } from "./modules/horarios/payroll.supabase.js";
 import { getPool } from "./shared/db/pg.js";
 
 /**
@@ -72,6 +75,12 @@ export default createRoutes({
       authenticate,
       accessRepo,
       service: empleadosService,
+    }),
+    // Mounted before "/horarios" so the shift router never sees payroll paths.
+    "/horarios/payroll": createPayrollRouter({
+      authenticate,
+      accessRepo,
+      service: createPayrollService({ repo: createPayrollRepo(lazyClient), empleadosService }),
     }),
     "/horarios": createHorariosRouter({
       authenticate,
