@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import express from "express";
 
 process.env.NODE_ENV = "test";
 
@@ -96,6 +98,30 @@ test("service errors keep their status and stable code (PAYROLL_PERIOD_INVALID -
     },
     stubService(() => { throw createHttpError(400, "El corte debe ser de 1 o 2 semanas completas, de lunes a domingo.", "PAYROLL_PERIOD_INVALID"); }),
   ));
+
+test("createRoutes lets /horarios/payroll answer before a catch-all /horarios router (mount order matters)", async () => {
+  const mk = (tag) => {
+    const r = express.Router();
+    r.use((req, res) => res.json({ tag }));
+    return r;
+  };
+  const server = createApp({ routes: createRoutes({ modules: { "/horarios/payroll": mk("payroll"), "/horarios": mk("horarios") } }) }).listen(0);
+  await new Promise((r) => server.once("listening", r));
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/api/horarios/payroll/report`);
+    assert.equal((await res.json()).tag, "payroll");
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test("src/routes.js mounts /horarios/payroll before /horarios", () => {
+  const src = readFileSync(new URL("../../src/routes.js", import.meta.url), "utf8");
+  const payroll = src.indexOf('"/horarios/payroll":');
+  const horarios = src.indexOf('"/horarios":');
+  assert.ok(payroll > 0, "payroll mount is missing");
+  assert.ok(horarios > payroll, "/horarios must be mounted after /horarios/payroll");
+});
 
 test("default wiring rejects an anonymous /api/horarios/payroll/report with 401 (no network needed)", async () => {
   const server = createApp().listen(0);

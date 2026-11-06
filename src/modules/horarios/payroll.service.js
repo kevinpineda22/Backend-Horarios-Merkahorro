@@ -99,7 +99,9 @@ export function createPayrollService({ repo, empleadosService, getHolidayFn = ge
     try {
       const { data } = await empleadosService.list(ADMIN_SCOPE);
       return { byCedula: new Map(data.map((e) => [e.cedula, e])), available: true };
-    } catch {
+    } catch (err) {
+      // Degrade on any failure (not only the outage), but leave a trace; message only, no PII.
+      console.error("[payroll] directory unavailable:", err?.message);
       return { byCedula: new Map(), available: false };
     }
   }
@@ -181,8 +183,13 @@ export function createPayrollService({ repo, empleadosService, getHolidayFn = ge
       const inScope = (id) => canAccessSede(access, id) && (sedeId === undefined || id === sedeId);
       const warnings = [];
       const push = (code, extra) => warnings.push({ code, ...extra });
+      // Always present: scheduling only covers what was programmed in this system (today, cashiers only),
+      // so a zero-hour row can also mean "not scheduled here".
+      push("PARTIAL_COVERAGE");
 
       // Sede-weeks that have work in the period, from the shifts themselves.
+      // Accepted (S1): previous-day spill shifts of a BORRADOR previous week are counted in the hours
+      // but that week is not reported here, since it lies outside the period's weeks.
       const scheduleState = new Map(schedules.map((s) => [`${s.sede_id}|${s.week_start}`, s.state]));
       const worked = new Set(
         shiftRows

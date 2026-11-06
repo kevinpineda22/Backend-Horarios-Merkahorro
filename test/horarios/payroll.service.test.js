@@ -267,12 +267,47 @@ test("warning SEDE_WEEK_WITHOUT_SCHEDULE flags active sede-weeks with no schedul
   assert.equal(warn(await report(service, PLANNER), "SEDE_WEEK_WITHOUT_SCHEDULE"), undefined, "planner's sede is fully scheduled");
 });
 
-test("no warnings are emitted when everything is in order", async () => {
+test("only the always-present PARTIAL_COVERAGE warning is emitted when everything is in order", async () => {
   const { service } = build({
     shifts: [sh("10010001", "copacabana", "2026-11-03", "08:00", "12:00")],
     directory: [emp("10010001", "copacabana")],
   });
-  assert.deepEqual((await report(service)).warnings, []);
+  assert.deepEqual((await report(service)).warnings, [{ code: "PARTIAL_COVERAGE" }]);
+});
+
+test("PARTIAL_COVERAGE is present for every role, scope and period kind", async () => {
+  const { service } = build({ now: () => new Date("2026-11-05T15:00:00Z") });
+  for (const [access, q] of [[ADMIN, {}], [PLANNER, {}], [ADMIN, { from: FROM, to: TO }], [ADMIN, { from: FROM, to: TO, sedeId: "bello" }]]) {
+    assert.deepEqual((await service.report(access, q)).warnings.filter((w) => w.code === "PARTIAL_COVERAGE"), [{ code: "PARTIAL_COVERAGE" }]);
+  }
+});
+
+test("default period follows the Bogota calendar day at the UTC boundary", async () => {
+  const at = (iso) => build({ now: () => new Date(iso) }).service;
+  const before = await at("2026-11-09T04:59:00Z").report(ADMIN, {});
+  assert.deepEqual([before.period.from, before.period.to], ["2026-10-26", "2026-11-08"]);
+  const after = await at("2026-11-09T05:00:00Z").report(ADMIN, {});
+  assert.deepEqual([after.period.from, after.period.to], ["2026-11-09", "2026-11-22"]);
+});
+
+test("planner-scoped report never leaks other sedes' cedulas into cedula warnings", async () => {
+  const { service } = build({
+    shifts: [
+      sh("10010001", "copacabana", "2026-11-03", "08:00", "12:00"),
+      // bello: not in directory, no branch code, overlapping shifts
+      sh("10090009", "bello", "2026-11-03", "08:00", "12:00", { code: null }),
+      sh("10090009", "sinCodigo", "2026-11-03", "10:00", "14:00", { code: null }),
+    ],
+    directory: [emp("10010001", "copacabana")],
+  });
+  const admin = await report(service, ADMIN);
+  assert.ok(warn(admin, "NOT_IN_DIRECTORY").cedulas.includes("10090009"));
+  assert.ok(warn(admin, "SHIFT_OVERLAP_DEDUPED").cedulas.includes("10090009"));
+  const r = await report(service, PLANNER);
+  for (const code of ["NOT_IN_DIRECTORY", "MISSING_BRANCH", "SHIFT_OVERLAP_DEDUPED"]) {
+    assert.equal(JSON.stringify(warn(r, code) ?? {}).includes("10090009"), false, code);
+  }
+  assert.equal(JSON.stringify(r.siesa).includes("10090009"), false);
 });
 
 test("warning NOT_IN_DIRECTORY keeps the row (and exports it) for people who worked but are not active in SIESA", async () => {
@@ -332,6 +367,14 @@ test("DIRECTORY_UNAVAILABLE degrades: report still computes, names null, no zero
   assert.equal(warn(r, "NOT_IN_DIRECTORY"), undefined);
   assert.deepEqual([r.rows[0].nombre, r.rows[0].inDirectory, r.rows[0].siesaCode], [null, null, "003"]);
   assert.equal(r.rows.length, 1);
+});
+
+test("a failing directory is logged without PII and still degrades to DIRECTORY_UNAVAILABLE", async (t) => {
+  const logged = [];
+  t.mock.method(console, "error", (...args) => logged.push(args));
+  const { service } = build({ directoryError: new TypeError("x is not a function") });
+  assert.ok(warn(await report(service), "DIRECTORY_UNAVAILABLE"));
+  assert.deepEqual(logged, [["[payroll] directory unavailable:", "x is not a function"]]);
 });
 
 test("fingerprint: admin without sedeId only; ignores names and zero-hour rows; changes with hours", async () => {
