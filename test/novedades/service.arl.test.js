@@ -96,6 +96,19 @@ test("create ARL: files that were never uploaded are a 400 on the right field an
   assert.equal(repo.calls.insert.length + none.repo.calls.insert.length, 0);
 });
 
+test("create ARL: a realistic storage-js 404 for a missing object yields the 400 message, not a 500", async () => {
+  const { createNovedadesStorage } = await import("../../src/modules/novedades/novedades.storage.js");
+  const missing = { data: false, error: { message: "Object not found", status: 404, statusCode: "404" } };
+  const client = { storage: { from: () => ({ exists: async () => missing }) } };
+  const repo = createFakeRepo();
+  const svc = createNovedadesService({ repo, storage: createNovedadesStorage(client), profilesRepo: { findById: async () => null }, now: () => NOW, newId: () => UPLOAD_ID });
+  const d = await details(svc.create(admin, user, arl));
+  assert.deepEqual(d.map((x) => x.path).sort(), ["body.adjuntoPath", "body.firmaPath"]);
+  assert.match(d[0].message, /no se encontró; súbelo de nuevo\./);
+  await rejects(svc.create(admin, user, arl), 400, "VALIDATION_ERROR");
+  assert.equal(repo.calls.insert.length, 0);
+});
+
 test("create: ARL rules are enforced in the service too (defense in depth)", async () => {
   const { svc, repo } = make();
   const d = await details(svc.create(admin, user, { ...arl, adjuntoPath: null, firmaPath: null }));

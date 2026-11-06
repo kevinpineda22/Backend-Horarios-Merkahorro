@@ -75,6 +75,18 @@ test("repo.update with onlyActive guards on anulada=false and returns null when 
   assert.equal(has(loose.log, "eq", "anulada", false), false);
 });
 
+test("repo: unique violation (23505) on a file path index maps to 409 NOVEDAD_FILE_IN_USE", async () => {
+  for (const idx of ["novedades_adjunto_path_key", "novedades_firma_path_key"]) {
+    const dup = fakeClient({ data: null, error: { code: "23505", message: `duplicate key value violates unique constraint "${idx}"` } });
+    const repo = createNovedadesRepo(dup.client);
+    const ok = (e) => e.statusCode === 409 && e.code === "NOVEDAD_FILE_IN_USE" && e.message === "Este archivo ya está adjunto a otra novedad.";
+    await assert.rejects(repo.insert({ adjunto_path: "p" }), ok);
+    await assert.rejects(repo.update("i", { firma_path: "p" }, {}), ok);
+  }
+  const other = { code: "23505", message: 'duplicate key value violates unique constraint "something_else"' };
+  await assert.rejects(createNovedadesRepo(fakeClient({ data: null, error: other }).client).insert({}), (e) => e === other);
+});
+
 test("repo: FK violation (23503) maps to 404 SEDE_NOT_FOUND; other errors propagate", async () => {
   const fk = fakeClient({ data: null, error: { code: "23503", message: "fk" } });
   const repo = createNovedadesRepo(fk.client);

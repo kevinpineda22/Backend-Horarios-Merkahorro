@@ -86,6 +86,10 @@ alter table novedades add constraint novedades_paths_chk check (
   (adjunto_path is null or adjunto_path ~ '^[0-9]{4}/(0[1-9]|1[0-2])/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-adjunto\.(pdf|png|jpg|webp)$')
   and (firma_path is null or firma_path ~ '^[0-9]{4}/(0[1-9]|1[0-2])/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-firma\.png$'));
 
+-- One storage object can belong to a single novedad (a path is generated per upload).
+create unique index if not exists novedades_adjunto_path_key on novedades (adjunto_path) where adjunto_path is not null;
+create unique index if not exists novedades_firma_path_key on novedades (firma_path) where firma_path is not null;
+
 -- ---------------------------------------------------------------------------
 -- 3. Private bucket for the support files (ARL document and leader signature).
 -- ---------------------------------------------------------------------------

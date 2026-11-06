@@ -1,5 +1,8 @@
 import { NOVEDADES_BUCKET } from "./domain/novedadFiles.js";
 
+const NOT_FOUND_STATUSES = new Set([400, 404]);
+const isNotFound = (error) => NOT_FOUND_STATUSES.has(Number(error.status ?? error.statusCode));
+
 /**
  * Supabase Storage implementation of the novedades files port (client injected). The bucket is
  * private: the backend never exposes public URLs, only short-lived signed ones.
@@ -18,7 +21,11 @@ export function createNovedadesStorage(client, bucket = NOVEDADES_BUCKET) {
 
     async exists(path) {
       const { data, error } = await files().exists(path);
-      if (error) throw error;
+      if (error) {
+        // storage-js 2.x answers { data: false, error } with 400/404 for a missing object.
+        if (isNotFound(error)) return false;
+        throw error;
+      }
       return data === true;
     },
 

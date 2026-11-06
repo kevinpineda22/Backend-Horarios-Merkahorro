@@ -81,6 +81,33 @@ test("the SQL path regexes accept what the domain generates and agree with its p
   assert.ok(sql.includes("[0-9]{4}/(0[1-9]|1[0-2])/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-adjunto"));
 });
 
+test("path regex: dots are literal and the domain pattern equals the DB one", () => {
+  const id = "3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab";
+  assert.equal(isValidObjectPath("adjunto", `2026/11/${id}-adjuntoXpdf`), false);
+  assert.equal(isValidObjectPath("firma", `2026/11/${id}-firmaXpng`), false);
+  for (const ext of ["pdf", "png", "jpg", "webp"]) assert.ok(isValidObjectPath("adjunto", `2026/01/${id}-adjunto.${ext}`), ext);
+  assert.ok(isValidObjectPath("firma", `2026/12/${id}-firma.png`));
+  assert.equal(isValidObjectPath("firma", `2026/12/${id}-firma.jpg`), false);
+  assert.equal(isValidObjectPath("adjunto", `2026/13/${id}-adjunto.pdf`), false);
+  // Same regexes as the DB constraint: take them from the SQL and compare behavior.
+  const dbRe = (col) => new RegExp(new RegExp(`${col} ~ '([^']+)'`).exec(sql)[1]);
+  const samples = [
+    `2026/11/${id}-adjunto.pdf`, `2026/11/${id}-adjuntoXpdf`, `2026/11/${id}-adjunto.gif`,
+    `2026/11/${id}-firma.png`, `2026/11/${id}-firmaXpng`, `2026/11/${id}-firma.pdf`, `../etc/passwd`,
+  ];
+  for (const s of samples) {
+    assert.equal(isValidObjectPath("adjunto", s), dbRe("adjunto_path").test(s), `adjunto ${s}`);
+    assert.equal(isValidObjectPath("firma", s), dbRe("firma_path").test(s), `firma ${s}`);
+  }
+});
+
+test("a file belongs to at most one novedad: partial unique indexes, dropped by the rollback", () => {
+  for (const col of ["adjunto", "firma"]) {
+    assert.ok(norm.includes(`create unique index if not exists novedades_${col}_path_key on novedades (${col}_path) where ${col}_path is not null;`), col);
+    assert.ok(flat(down).includes(`drop index if exists novedades_${col}_path_key;`), `rollback ${col}`);
+  }
+});
+
 test("private bucket matches the domain constants and has no storage policies", () => {
   const flatSql = sql.replace(/\s+/g, " ").toLowerCase();
   assert.ok(flatSql.includes("insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)"));
@@ -106,6 +133,28 @@ test("rollback restores Estudio, the old CHECK and drops every new column", () =
     assert.ok(d.includes(`drop constraint if exists ${c}`), `rollback keeps ${c}`);
   }
   assert.ok(d.includes("blocking_absence_types"));
+});
+
+test("rollback is idempotent and backs up first", () => {
+  const d = flat(down);
+  const backup = d.indexOf("create table if not exists novedades_backup_006 as select * from novedades;");
+  assert.ok(backup >= 0, "backup statement missing");
+  assert.ok(backup < d.indexOf("drop constraint"), "backup must come before any destructive statement");
+  assert.ok(backup < d.indexOf("update novedades"), "backup before updates");
+  const dropTipo = d.indexOf("drop constraint if exists novedades_tipo_check;");
+  assert.ok(dropTipo >= 0 && dropTipo < d.indexOf("add constraint novedades_tipo_check"), "drop-if-exists before re-adding");
+  assert.match(down, /novedades_backup_006/);
+  assert.match(down.split("\n").slice(0, 12).join("\n"), /backup/i, "documented in the header");
+});
+
+test("verification asserts the default, the migrated array order/dedupe and the unique indexes", () => {
+  const v = flat(verify);
+  assert.ok(v.includes("column_default") && v.includes("blocking_absence_types"), "default check");
+  assert.ok(v.includes(`{incapacidades,licencias,vacaciones,permisos,"permisos académicos","día de la familia"}`), "expected default list");
+  assert.ok(v.includes("array['vacaciones', 'permisos académicos', 'permisos']"), "order + dedupe expectation");
+  assert.ok(v.includes("count(distinct x)"), "no duplicates in migrated rows");
+  for (const col of ["adjunto", "firma"]) assert.ok(v.includes(`novedades_${col}_path_key`), `${col} index`);
+  assert.equal(v.split("exception when unique_violation").length - 1, 2, "both reuse cases rejected");
 });
 
 test("verification script runs in one transaction that ends with ROLLBACK", () => {

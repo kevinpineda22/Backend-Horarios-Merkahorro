@@ -107,6 +107,8 @@ Read DTO additions: `subtipo`, `sedeNombre`, `responsableNombre`, `hasAdjunto`, 
 
 **Deploy order:** (1) apply 006 in Supabase, (2) deploy the backend, (3) deploy the frontend. The old backend breaks after 006 (it still writes `Estudio`), and the new backend breaks before 006 (missing columns), so do 1 and 2 back to back.
 
+**Deploy note:** Apply 006 and deploy this backend back to back, off-hours, with no sugerido run in between. (Between the two steps the old code drops Estudio-origin absences from the scheduler and fails to create Estudio novedades; deploying code first breaks every create.) 006 also adds partial unique indexes so a file belongs to one novedad (reuse answers 409 `NOVEDAD_FILE_IN_USE`). The rollback now snapshots `novedades` into `novedades_backup_006` first and is idempotent.
+
 ### Environment variables (names only — never commit values)
 
 | Where | Variable | Notes |

@@ -29,6 +29,19 @@ test("exists: true / false from the bucket, errors propagate", async () => {
   await assert.rejects(createNovedadesStorage(fakeClient({ exists: { data: false, error: boom } }).client).exists("a"), boom);
 });
 
+test("exists: storage-js 2.x reports a missing object as data:false + 400/404 error -> false", async () => {
+  for (const status of [400, 404, "400", "404"]) {
+    for (const key of ["status", "statusCode"]) {
+      const error = { message: "Object not found", [key]: status };
+      assert.equal(await createNovedadesStorage(fakeClient({ exists: { data: false, error } }).client).exists("a"), false, `${key}=${status}`);
+    }
+  }
+  for (const status of [500, 503, "500", undefined]) {
+    const error = Object.assign(new Error("storage down"), { status });
+    await assert.rejects(createNovedadesStorage(fakeClient({ exists: { data: false, error } }).client).exists("a"), error);
+  }
+});
+
 test("createDownloadUrl: short-lived signed URL", async () => {
   const { log, client } = fakeClient();
   assert.equal(await createNovedadesStorage(client).createDownloadUrl("a/b.pdf", 300), "https://s/d");

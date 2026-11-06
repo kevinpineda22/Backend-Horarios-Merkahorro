@@ -22,8 +22,9 @@ export function isAllowedContentType(kind, contentType) {
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const PATH_RE = {
-  adjunto: new RegExp(`^[0-9]{4}/(0[1-9]|1[0-2])/${UUID}-adjunto\.(pdf|png|jpg|webp)$`),
-  firma: new RegExp(`^[0-9]{4}/(0[1-9]|1[0-2])/${UUID}-firma\.png$`),
+  // String.raw keeps the backslash: the dots must be literal (same patterns as novedades_paths_chk in 006).
+  adjunto: new RegExp(String.raw`^[0-9]{4}/(0[1-9]|1[0-2])/${UUID}-adjunto\.(pdf|png|jpg|webp)$`),
+  firma: new RegExp(String.raw`^[0-9]{4}/(0[1-9]|1[0-2])/${UUID}-firma\.png$`),
 };
 
 /** True when `path` has exactly the shape buildObjectPath generates for `kind`. */

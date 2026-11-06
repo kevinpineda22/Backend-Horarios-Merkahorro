@@ -2,8 +2,17 @@
 -- novedad. Files already uploaded to the novedades-soportes bucket are NOT deleted by SQL (Supabase blocks direct
 -- deletes on storage tables): empty and delete the bucket from the Storage dashboard if it is no longer needed.
 -- Only meaningful together with a backend deploy that predates 006 (it does not know "Permisos académicos").
+-- Idempotent. FIRST it copies the whole table into novedades_backup_006 (kept if it already exists, so a re-run never
+-- overwrites the first snapshot); drop that table by hand once the rollback is confirmed.
+
+create table if not exists novedades_backup_006 as select * from novedades;
+alter table novedades_backup_006 enable row level security; -- no policies: service role only
+
+drop index if exists novedades_adjunto_path_key;
+drop index if exists novedades_firma_path_key;
 
 alter table novedades drop constraint if exists novedades_tipo_chk;
+alter table novedades drop constraint if exists novedades_tipo_check;
 alter table novedades drop constraint if exists novedades_subtipo_chk;
 alter table novedades drop constraint if exists novedades_arl_chk;
 alter table novedades drop constraint if exists novedades_paths_chk;

@@ -29,6 +29,8 @@ declare
   v_fir text := '2031/01/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-firma.png';
   v_id uuid;
   v_b storage.buckets;
+  v_default text;
+  v_arr text[];
 begin
   -- 1. Structure: columns, RLS, no privileges for anon/authenticated.
   assert (select count(*) from information_schema.columns
@@ -53,6 +55,26 @@ begin
   assert not exists (select 1 from sugerido_settings
                       where 'Vacaciones' = any (blocking_absence_types) and not 'Permisos académicos' = any (blocking_absence_types)),
     'blocking types that had Estudio now have Permisos académicos';
+
+  -- 3b. Scheduler default: renamed label, original order, nothing left of Estudio.
+  select column_default into v_default from information_schema.columns
+   where table_name = 'sugerido_settings' and column_name = 'blocking_absence_types';
+  assert v_default like '''{Incapacidades,Licencias,Vacaciones,Permisos,"Permisos académicos","Día de la Familia"}''%',
+    'blocking_absence_types default is the renamed list in order';
+  assert v_default not like '%Estudio%', 'default no longer mentions Estudio';
+
+  -- 3c. Migrated arrays: no duplicates anywhere, and the migration expression (copied from 006, run on a literal
+  -- so no settings row is needed) renames in place, keeps first-occurrence order and drops the duplicate.
+  assert not exists (select 1 from sugerido_settings
+                      where cardinality(blocking_absence_types) <> (select count(distinct x) from unnest(blocking_absence_types) x)),
+    'no duplicated blocking types after the rename';
+  select coalesce(array_agg(t order by first_pos), '{}') into v_arr
+    from (
+      select case when x = 'Estudio' then 'Permisos académicos' else x end as t, min(pos) as first_pos
+        from unnest(array['Vacaciones', 'Estudio', 'Permisos', 'Permisos académicos', 'Estudio']) with ordinality as u(x, pos)
+       group by 1
+    ) s;
+  assert v_arr = array['Vacaciones', 'Permisos académicos', 'Permisos'], 'rename keeps order and has no duplicates';
 
   -- 4. tipo CHECK: new label and the historical one are valid, the old one is not.
   perform pg_temp.nov('Permisos académicos');
@@ -100,6 +122,22 @@ begin
     perform pg_temp.nov('Incapacidades', 'ARL', v_adj, v_fir, null);
     raise exception 'expected check_violation for ARL without responsable';
   exception when check_violation then null;
+  end;
+
+  -- 6b. One file belongs to at most one novedad: partial unique indexes exist and reject reuse.
+  assert (select count(*) from pg_indexes
+           where tablename = 'novedades' and indexname in ('novedades_adjunto_path_key', 'novedades_firma_path_key')
+             and indexdef ilike 'create unique index%' and indexdef ilike '%where%is not null%') = 2,
+    'both partial unique indexes on adjunto_path / firma_path exist';
+  begin
+    perform pg_temp.nov('Incapacidades', 'ARL', v_adj, '2031/01/aaaaaaaa-5d4a-4b6e-9a1c-0123456789ab-firma.png', v_resp);
+    raise exception 'expected unique_violation for a reused adjunto_path';
+  exception when unique_violation then null;
+  end;
+  begin
+    perform pg_temp.nov('Incapacidades', 'ARL', '2031/01/aaaaaaaa-5d4a-4b6e-9a1c-0123456789ab-adjunto.pdf', v_fir, v_resp);
+    raise exception 'expected unique_violation for a reused firma_path';
+  exception when unique_violation then null;
   end;
 
   -- 7. Other subtipos / tipos must not carry files.
