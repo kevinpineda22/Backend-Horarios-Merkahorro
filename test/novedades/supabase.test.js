@@ -27,7 +27,7 @@ const has = (log, ...call) => log.some((c) => JSON.stringify(c) === JSON.stringi
 test("repo.list builds overlap + scope filters on the novedades table", async () => {
   const { log, client } = fakeClient();
   await createNovedadesRepo(client).list({
-    sede: "s1", sedeIds: ["s1", "s3"], sedeNotNull: true, cedula: "123456", tipo: "Estudio",
+    sede: "s1", sedeIds: ["s1", "s3"], sedeNotNull: true, cedula: "123456", tipo: "Permisos académicos",
     desde: "2026-11-18", hasta: "2026-11-25", incluirAnuladas: false, limit: 501,
   });
   assert.ok(has(log, "from", "novedades"));
@@ -36,7 +36,7 @@ test("repo.list builds overlap + scope filters on the novedades table", async ()
   assert.ok(has(log, "in", "sede_id", ["s1", "s3"]));
   assert.ok(has(log, "not", "sede_id", "is", null));
   assert.ok(has(log, "eq", "cedula", "123456"));
-  assert.ok(has(log, "eq", "tipo", "Estudio"));
+  assert.ok(has(log, "eq", "tipo", "Permisos académicos"));
   assert.ok(has(log, "gte", "fecha_fin", "2026-11-18")); // row ends on/after range start
   assert.ok(has(log, "lte", "fecha_inicio", "2026-11-25")); // row starts on/before range end
   assert.ok(has(log, "order", "fecha_inicio", { ascending: false }));
@@ -65,9 +65,9 @@ test("repo.findOverlapping queries active rows of the cedula, excluding the give
 
 test("repo.update with onlyActive guards on anulada=false and returns null when nothing matched", async () => {
   const { log, client } = fakeClient({ data: null, error: null });
-  const out = await createNovedadesRepo(client).update("id1", { tipo: "Estudio" }, { onlyActive: true });
+  const out = await createNovedadesRepo(client).update("id1", { tipo: "Permisos académicos" }, { onlyActive: true });
   assert.equal(out, null);
-  assert.ok(has(log, "update", { tipo: "Estudio" }));
+  assert.ok(has(log, "update", { tipo: "Permisos académicos" }));
   assert.ok(has(log, "eq", "id", "id1"));
   assert.ok(has(log, "eq", "anulada", false));
   const loose = fakeClient({ data: { id: "id1" }, error: null });

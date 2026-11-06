@@ -24,7 +24,7 @@ const SEDE_ROW = { sede_id: "s1", nombre: "Centro", bodegas: ["B1"], activo: tru
 const SETTINGS_ROW = {
   ordinary_weekly_hours: 42, overtime_weekly_hours: 12, daily_max_hours: 10, utilization: 0.85,
   max_working_days_per_week: 6, min_cashiers: 1, stale_after_days: 1,
-  blocking_absence_types: ["Incapacidades", "Licencias", "Vacaciones", "Permisos", "Estudio", "Día de la Familia"],
+  blocking_absence_types: ["Incapacidades", "Licencias", "Vacaciones", "Permisos", "Permisos académicos", "Día de la Familia"],
   updated_by: null, updated_at: null,
 };
 

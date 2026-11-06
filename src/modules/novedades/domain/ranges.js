@@ -12,7 +12,13 @@ export function toNovedadDto(row) {
     fechaInicio: row.fecha_inicio,
     fechaFin: row.fecha_fin,
     observacion: row.observacion ?? null,
+    subtipo: row.subtipo ?? null,
     sedeId: row.sede_id ?? null,
+    sedeNombre: row.sede_nombre ?? null,
+    responsableNombre: row.responsable_nombre ?? null,
+    // Storage paths are internal: clients only learn whether a file exists and fetch it by signed URL.
+    hasAdjunto: Boolean(row.adjunto_path),
+    hasFirma: Boolean(row.firma_path),
     anulada: row.anulada ?? false,
     anuladaPor: row.anulada_por ?? null,
     anuladaAt: row.anulada_at ?? null,

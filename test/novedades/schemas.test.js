@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { createNovedadSchema, patchNovedadSchema, anularSchema, listQuerySchema, idParamSchema } = await import(
+const { createNovedadSchema, patchNovedadSchema, anularSchema, listQuerySchema, idParamSchema, uploadSchema, fileParamsSchema } = await import(
   "../../src/modules/novedades/novedades.schemas.js"
 );
 
@@ -15,7 +15,15 @@ const bad = (schema, v) => assert.equal(schema.safeParse(v).success, false, JSON
 
 test("create: valid body parses; unknown keys (created_by, anulada) are stripped", () => {
   const d = ok(createNovedadSchema, { ...base, created_by: "other", createdBy: "x", anulada: true, id: "z" });
-  assert.deepEqual(d, { ...base, observacion: null, sedeId: null });
+  assert.deepEqual(d, {
+    ...base,
+    subtipo: null,
+    observacion: null,
+    sedeId: null,
+    sedeNombre: null,
+    adjuntoPath: null,
+    firmaPath: null,
+  });
 });
 
 test("create: single-day range is valid, end before start is not", () => {
@@ -23,18 +31,88 @@ test("create: single-day range is valid, end before start is not", () => {
   bad(createNovedadSchema, { ...base, fechaInicio: "2026-11-03", fechaFin: "2026-11-02" });
 });
 
-test("create: tipo must be one of the 6 labels", () => {
-  for (const tipo of ["Vacaciones", "Incapacidades", "Licencias", "Permisos", "Estudio", "Día de la Familia"]) {
-    ok(createNovedadSchema, { ...base, tipo });
+test("create: tipo must be one of the 5 creatable labels", () => {
+  const sub = { Incapacidades: "Enfermedad general", Licencias: "Remunerada" };
+  for (const tipo of ["Vacaciones", "Incapacidades", "Licencias", "Permisos", "Permisos académicos"]) {
+    ok(createNovedadSchema, { ...base, tipo, subtipo: sub[tipo] ?? null });
   }
   bad(createNovedadSchema, { ...base, tipo: "Sabático" });
   bad(createNovedadSchema, { ...base, tipo: "vacaciones" });
+  bad(createNovedadSchema, { ...base, tipo: "Estudio" });
+});
+
+test("create: Día de la Familia can no longer be created, in any Unicode form", () => {
+  bad(createNovedadSchema, { ...base, tipo: "Día de la Familia" });
+  bad(createNovedadSchema, { ...base, tipo: "Día de la Familia".normalize("NFD") });
 });
 
 test("create: tipo in NFD form is normalized to the canonical NFC label", () => {
-  const nfd = "Día de la Familia".normalize("NFD");
-  assert.notEqual(nfd, "Día de la Familia");
-  assert.equal(ok(createNovedadSchema, { ...base, tipo: nfd }).tipo, "Día de la Familia".normalize("NFC"));
+  const nfd = "Permisos académicos".normalize("NFD");
+  assert.notEqual(nfd, "Permisos académicos");
+  assert.equal(ok(createNovedadSchema, { ...base, tipo: nfd }).tipo, "Permisos académicos".normalize("NFC"));
+});
+
+const ARL = {
+  tipo: "Incapacidades",
+  subtipo: "ARL",
+  adjuntoPath: "2026/11/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-adjunto.pdf",
+  firmaPath: "2026/11/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-firma.png",
+};
+const msgs = (v) =>
+  createNovedadSchema.safeParse({ ...base, ...v }).error?.issues.map((i) => `${i.path.join(".")}: ${i.message}`) ?? [];
+
+test("create: Incapacidades and Licencias require a valid subtipo", () => {
+  bad(createNovedadSchema, { ...base, tipo: "Incapacidades" });
+  bad(createNovedadSchema, { ...base, tipo: "Incapacidades", subtipo: "Remunerada" });
+  bad(createNovedadSchema, { ...base, tipo: "Licencias" });
+  bad(createNovedadSchema, { ...base, tipo: "Licencias", subtipo: "ARL" });
+  assert.equal(ok(createNovedadSchema, { ...base, tipo: "Licencias", subtipo: "No remunerada" }).subtipo, "No remunerada");
+  assert.ok(msgs({ tipo: "Incapacidades" }).some((m) => m.startsWith("subtipo: ")));
+});
+
+test("create: other tipos reject any subtipo", () => {
+  bad(createNovedadSchema, { ...base, subtipo: "ARL" });
+  bad(createNovedadSchema, { ...base, tipo: "Permisos", subtipo: "Remunerada" });
+  assert.equal(ok(createNovedadSchema, { ...base, subtipo: null }).subtipo, null);
+});
+
+test("create: ARL requires adjunto and firma (Spanish messages); the happy path parses", () => {
+  assert.equal(ok(createNovedadSchema, { ...base, ...ARL }).firmaPath, ARL.firmaPath);
+  assert.deepEqual(msgs({ ...ARL, adjuntoPath: undefined, firmaPath: undefined }).sort(), [
+    "adjuntoPath: Debes adjuntar el soporte de la incapacidad ARL.",
+    "firmaPath: Falta la firma del líder responsable.",
+  ]);
+  bad(createNovedadSchema, { ...base, ...ARL, firmaPath: null });
+});
+
+test("create: Enfermedad general and other tipos must not carry files", () => {
+  bad(createNovedadSchema, { ...base, tipo: "Incapacidades", subtipo: "Enfermedad general", adjuntoPath: ARL.adjuntoPath });
+  bad(createNovedadSchema, { ...base, adjuntoPath: ARL.adjuntoPath });
+  bad(createNovedadSchema, { ...base, firmaPath: ARL.firmaPath });
+});
+
+test("create: file paths must match the server-generated pattern per kind", () => {
+  bad(createNovedadSchema, { ...base, ...ARL, adjuntoPath: "../../etc/passwd" });
+  bad(createNovedadSchema, { ...base, ...ARL, adjuntoPath: "2026/11/not-a-uuid-adjunto.pdf" });
+  bad(createNovedadSchema, { ...base, ...ARL, adjuntoPath: ARL.firmaPath }); // firma path in adjunto slot
+  bad(createNovedadSchema, { ...base, ...ARL, firmaPath: ARL.adjuntoPath }); // pdf is not a valid signature
+  bad(createNovedadSchema, { ...base, ...ARL, firmaPath: ARL.firmaPath.replace(".png", ".jpg") });
+  bad(createNovedadSchema, { ...base, ...ARL, adjuntoPath: "https://x.co/a.pdf" });
+  ok(createNovedadSchema, { ...base, ...ARL, adjuntoPath: ARL.adjuntoPath.replace(".pdf", ".webp") });
+});
+
+test("create: sedeNombre is trimmed, whitespace-collapsed, max 120, blank -> null", () => {
+  assert.equal(ok(createNovedadSchema, { ...base, sedeNombre: "  CORPORATIVO   GENERAL " }).sedeNombre, "CORPORATIVO GENERAL");
+  assert.equal(ok(createNovedadSchema, { ...base, sedeNombre: "   " }).sedeNombre, null);
+  assert.equal(ok(createNovedadSchema, { ...base, sedeNombre: null }).sedeNombre, null);
+  ok(createNovedadSchema, { ...base, sedeNombre: "x".repeat(120) });
+  bad(createNovedadSchema, { ...base, sedeNombre: "x".repeat(121) });
+  bad(createNovedadSchema, { ...base, sedeNombre: 5 });
+});
+
+test("create: responsable fields from the client are stripped (they come from the session)", () => {
+  const d = ok(createNovedadSchema, { ...base, responsableId: "x", responsableNombre: "y", responsable_id: "z" });
+  assert.equal("responsableId" in d || "responsableNombre" in d || "responsable_id" in d, false);
 });
 
 test("create: cedula is trimmed and separators stripped; length 5..15 digits", () => {
@@ -76,6 +154,58 @@ test("patch: partial bodies allowed, empty body rejected, same field validation"
   bad(patchNovedadSchema, { fechaInicio: "2026-12-05", fechaFin: "2026-12-01" });
   ok(patchNovedadSchema, { fechaInicio: "2026-12-05" }); // merged range is checked by the service
   assert.deepEqual(ok(patchNovedadSchema, { observacion: null }), { observacion: null });
+});
+
+test("patch: new fields are validated field by field; cross-field rules run in the service", () => {
+  assert.deepEqual(ok(patchNovedadSchema, { subtipo: "ARL" }), { subtipo: "ARL" });
+  assert.deepEqual(ok(patchNovedadSchema, { subtipo: null }), { subtipo: null });
+  bad(patchNovedadSchema, { subtipo: "Otro" });
+  assert.deepEqual(ok(patchNovedadSchema, { sedeNombre: " CORPORATIVO GENERAL " }), { sedeNombre: "CORPORATIVO GENERAL" });
+  assert.deepEqual(ok(patchNovedadSchema, { adjuntoPath: ARL.adjuntoPath, firmaPath: null }), { adjuntoPath: ARL.adjuntoPath, firmaPath: null });
+  bad(patchNovedadSchema, { adjuntoPath: "nope.pdf" });
+  bad(patchNovedadSchema, { firmaPath: ARL.adjuntoPath });
+  ok(patchNovedadSchema, { tipo: "Permisos académicos" });
+  bad(patchNovedadSchema, { tipo: "Día de la Familia" });
+  bad(patchNovedadSchema, { tipo: "Estudio" });
+});
+
+test("list query: tipo filter still accepts every stored tipo, including the historical one", () => {
+  assert.equal(ok(listQuerySchema, { tipo: "Día de la Familia" }).tipo, "Día de la Familia");
+  assert.equal(ok(listQuerySchema, { tipo: "Permisos académicos" }).tipo, "Permisos académicos");
+  bad(listQuerySchema, { tipo: "Estudio" });
+});
+
+test("uploads body: kind, file name, content type and size (<= 10 MB) are validated", () => {
+  const up = { kind: "adjunto", fileName: "incapacidad.pdf", contentType: "application/pdf", size: 1024, sedeId: "s1" };
+  assert.deepEqual(ok(uploadSchema, up), up);
+  assert.equal(ok(uploadSchema, { ...up, sedeId: undefined }).sedeId, null);
+  for (const contentType of ["image/png", "image/jpeg", "image/webp"]) ok(uploadSchema, { ...up, contentType });
+  bad(uploadSchema, { ...up, kind: "otro" });
+  bad(uploadSchema, { ...up, contentType: "text/html" });
+  bad(uploadSchema, { ...up, contentType: "application/zip" });
+  bad(uploadSchema, { ...up, fileName: "" });
+  bad(uploadSchema, { ...up, fileName: "x".repeat(256) });
+  bad(uploadSchema, { ...up, size: 0 });
+  bad(uploadSchema, { ...up, size: -1 });
+  bad(uploadSchema, { ...up, size: 1.5 });
+  bad(uploadSchema, { ...up, size: "100" });
+  ok(uploadSchema, { ...up, size: 10 * 1024 * 1024 });
+  bad(uploadSchema, { ...up, size: 10 * 1024 * 1024 + 1 });
+});
+
+test("uploads body: the signature must be a PNG", () => {
+  const sig = { kind: "firma", fileName: "firma.png", contentType: "image/png", size: 500, sedeId: null };
+  ok(uploadSchema, sig);
+  bad(uploadSchema, { ...sig, contentType: "image/jpeg" });
+  bad(uploadSchema, { ...sig, contentType: "application/pdf" });
+});
+
+test("file params: uuid id and kind adjunto|firma", () => {
+  const id = "3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab";
+  ok(fileParamsSchema, { id, kind: "adjunto" });
+  ok(fileParamsSchema, { id, kind: "firma" });
+  bad(fileParamsSchema, { id, kind: "otro" });
+  bad(fileParamsSchema, { id: "1", kind: "firma" });
 });
 
 test("anular: motivo required, trimmed, 1..500", () => {

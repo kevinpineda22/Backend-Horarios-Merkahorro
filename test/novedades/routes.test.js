@@ -56,7 +56,7 @@ async function withApp(seed, fn) {
 
 test("authentication: 401 without token or with an invalid one; 403 for a user without access row", () =>
   withApp([], async ({ call }) => {
-    for (const [m, p, b] of [["GET", "/"], ["GET", `/${ID_A}`], ["POST", "/", body], ["PATCH", `/${ID_A}`, { tipo: "Estudio" }], ["POST", `/${ID_A}/anular`, { motivo: "m" }]]) {
+    for (const [m, p, b] of [["GET", "/"], ["GET", `/${ID_A}`], ["POST", "/", body], ["PATCH", `/${ID_A}`, { tipo: "Permisos académicos" }], ["POST", `/${ID_A}/anular`, { motivo: "m" }]]) {
       assert.equal((await call(m, p, null, b)).status, 401, `${m} ${p}`);
       assert.equal((await call(m, p, "bogus", b)).status, 401, `${m} ${p} bogus`);
       const r = await call(m, p, "t-norole", b);
@@ -69,7 +69,7 @@ test("viewer: read-only; writes are 403 even when the body is invalid (role chec
   withApp([row({ id: ID_A })], async ({ call, repo }) => {
     assert.equal((await call("GET", "/", "t-viewer")).status, 200);
     assert.equal((await call("GET", `/${ID_A}`, "t-viewer")).status, 200);
-    for (const [m, p, b] of [["POST", "/", body], ["POST", "/", {}], ["PATCH", `/${ID_A}`, { tipo: "Estudio" }], ["POST", `/${ID_A}/anular`, { motivo: "m" }]]) {
+    for (const [m, p, b] of [["POST", "/", body], ["POST", "/", {}], ["PATCH", `/${ID_A}`, { tipo: "Permisos académicos" }], ["POST", `/${ID_A}/anular`, { motivo: "m" }]]) {
       const r = await call(m, p, "t-viewer", b);
       assert.equal(r.status, 403, `${m} ${p}`);
       assert.equal(r.json.code, "FORBIDDEN_ROLE");
@@ -147,7 +147,7 @@ test("validation: 400 VALIDATION_ERROR with details and nothing persisted", () =
     assert.equal(repo.calls.insert.length, 0);
 
     assert.equal((await call("PATCH", `/${ID_A}`, "t-admin", {})).status, 400);
-    assert.equal((await call("PATCH", "/not-a-uuid", "t-admin", { tipo: "Estudio" })).status, 400);
+    assert.equal((await call("PATCH", "/not-a-uuid", "t-admin", { tipo: "Permisos académicos" })).status, 400);
     assert.equal((await call("PATCH", `/${ID_A}`, "t-admin", { fechaFin: "2026-11-01" })).status, 400); // merged range
     assert.equal((await call("POST", `/${ID_A}/anular`, "t-admin", {})).status, 400);
     assert.equal((await call("POST", `/${ID_A}/anular`, "t-admin", { motivo: "x".repeat(501) })).status, 400);
@@ -160,9 +160,9 @@ test("validation: 400 VALIDATION_ERROR with details and nothing persisted", () =
 test("404 for unknown ids; 409 NOVEDAD_CANCELLED on PATCH/anular of a cancelled row", () =>
   withApp([row({ id: ID_A, anulada: true, anulada_at: "t" })], async ({ call, repo }) => {
     assert.equal((await call("GET", `/${ID_B}`, "t-admin")).json.code, "NOVEDAD_NOT_FOUND");
-    assert.equal((await call("PATCH", `/${ID_B}`, "t-admin", { tipo: "Estudio" })).status, 404);
+    assert.equal((await call("PATCH", `/${ID_B}`, "t-admin", { tipo: "Permisos académicos" })).status, 404);
     assert.equal((await call("POST", `/${ID_B}/anular`, "t-admin", { motivo: "m" })).status, 404);
-    const p = await call("PATCH", `/${ID_A}`, "t-admin", { tipo: "Estudio" });
+    const p = await call("PATCH", `/${ID_A}`, "t-admin", { tipo: "Permisos académicos" });
     assert.equal(p.status, 409);
     assert.equal(p.json.code, "NOVEDAD_CANCELLED");
     assert.equal((await call("POST", `/${ID_A}/anular`, "t-admin", { motivo: "m" })).status, 409);
@@ -187,8 +187,8 @@ test("list filters: cedula, tipo, sede, overlap range (inclusive), ordering and 
   withApp(
     [
       row({ id: ID_A, fecha_inicio: "2026-11-10", fecha_fin: "2026-11-20" }),
-      row({ id: ID_B, cedula: "777777", tipo: "Estudio", fecha_inicio: "2026-12-01", fecha_fin: "2026-12-02", sede_id: "s2" }),
-      row({ id: ID_C, cedula: "777777", tipo: "Estudio", fecha_inicio: "2026-01-01", fecha_fin: "2026-01-02" }),
+      row({ id: ID_B, cedula: "777777", tipo: "Permisos académicos", fecha_inicio: "2026-12-01", fecha_fin: "2026-12-02", sede_id: "s2" }),
+      row({ id: ID_C, cedula: "777777", tipo: "Permisos académicos", fecha_inicio: "2026-01-01", fecha_fin: "2026-01-02" }),
     ],
     async ({ call }) => {
       const ids = async (q) => (await call("GET", `/${q}`, "t-admin")).json.data.map((d) => d.id);
@@ -198,7 +198,7 @@ test("list filters: cedula, tipo, sede, overlap range (inclusive), ordering and 
       assert.deepEqual(await ids("?hasta=2026-11-09"), [ID_C]);
       assert.deepEqual(await ids("?cedula=777.777"), [ID_B, ID_C]);
       assert.deepEqual(await ids("?cedula=777777&sede=s1"), [ID_C]);
-      assert.deepEqual(await ids("?tipo=Estudio"), [ID_B, ID_C]);
+      assert.deepEqual(await ids("?tipo=Permisos académicos"), [ID_B, ID_C]);
       const all = await call("GET", "/", "t-admin");
       assert.deepEqual(all.json.data.map((d) => d.id), [ID_B, ID_A, ID_C]); // fecha_inicio desc
       assert.equal(all.json.truncated, false);
