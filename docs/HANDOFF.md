@@ -91,6 +91,7 @@ Pending (not yet applied): `004_shifts.sql` (shift persistence: schedules, shift
 | Backend-Horarios | `POSTGRES_HOST/PORT/DATABASE/USER/PASSWORD` | Sales DB. `POSTGRES_SSL` must be false/unset. |
 | Backend-Horarios | `TRAZABILIDAD_URL`, `TRAZABILIDAD_SERVICE_KEY` | Needed once trazabilidad's branch is deployed. Key = same secret as in trazabilidad, without the `horarios:` prefix. |
 | Backend-Horarios | `EMPLEADOS_CACHE_TTL_MS` | Optional, default 300000. |
+| Backend-Horarios | `SUGERIDO_CRON_KEY` | Service key for the daily recalculation (see "Daily suggestion runs"). Unset = the service endpoints answer 503. |
 | Trazabilidad | `SERVICE_API_KEYS` | `horarios:<64-hex secret>` (user generates it locally). |
 | Frontend | `VITE_BACKEND_HORARIOS_MERKAHORRO_URL` | Default `http://localhost:3003/api`. Do NOT reuse `VITE_BACKEND_HORARIOS_URL` (retired scheduler). |
 
@@ -218,3 +219,26 @@ Search with `mem_search` (use `all_projects: true` if needed), then `mem_get_obs
 4. Deploy the frontend.
 
 Rollback: redeploy the previous backend BEFORE running the down script.
+
+
+## Daily suggestion runs
+
+A GitHub Actions workflow (`.github/workflows/daily-suggestion.yml`) recalculates the cashier suggestion every day, so planners open the screen with fresh numbers.
+
+**What it does:** for every active sede it runs the same calculation as the "Calcular" button, for the current week and the next week (Monday dates by the Bogota calendar). Each run is a new version in `sugerido_runs` with `created_by = NULL` (system actor). Planner overrides live in their own table and are **never touched**: they are re-applied on top of the new suggestion exactly as with a manual run.
+
+**Endpoints** (header `x-service-key`, no Supabase session): `GET /api/sugerido/service/sedes` and `POST /api/sugerido/service/sedes/:sedeId/weeks/:weekStart/runs` (answers `{ sedeId, weekStart, version, persisted, dataAsOf }`). 401 `INVALID_SERVICE_KEY` for a wrong key; 503 `SERVICE_KEY_NOT_CONFIGURED` when the env var is missing (fails closed).
+
+**Setup (once):**
+1. Generate the key: `openssl rand -hex 32`.
+2. Vercel (Backend-Horarios, Production): add env `SUGERIDO_CRON_KEY` = the key, then redeploy.
+3. GitHub repo -> Settings -> Secrets and variables -> Actions: secret `SUGERIDO_CRON_KEY` = the same key.
+4. Optional: repository variable `BACKEND_URL` (default `https://backend-horarios-merkahorro.vercel.app`).
+
+**Schedule:** `cron: "0 11 * * *"` = 11:00 UTC = 06:00 Bogota. Change it in the workflow file (cron is always UTC; Bogota is UTC-5 all year). GitHub may start scheduled runs a few minutes late. Scheduled workflows only run from the default branch.
+
+**Manual run:** Actions -> "Daily suggestion runs" -> Run workflow (input `weeks`: `current,next`, `current` or `next`). Locally: `SUGERIDO_CRON_KEY=... BACKEND_URL=http://localhost:3003 node scripts/daily-suggestion.mjs`.
+
+**Failures:** each run prints one line (sede, week, HTTP code, version, dataAsOf). One failing sede does not stop the others; the job fails at the end if any run failed or the sede list could not be read. A week with no sales history answers 200 and is not saved (same as the manual button).
+
+**Rotate the key:** change it in Vercel (redeploy) and in the GitHub secret together.
