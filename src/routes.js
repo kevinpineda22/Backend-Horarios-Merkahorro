@@ -80,7 +80,11 @@ export default createRoutes({
     "/horarios/payroll": createPayrollRouter({
       authenticate,
       accessRepo,
-      service: createPayrollService({ repo: createPayrollRepo(lazyClient), empleadosService }),
+      service: createPayrollService({
+        repo: createPayrollRepo(lazyClient),
+        empleadosService,
+        profilesRepo: createProfilesRepo(lazyClient),
+      }),
     }),
     "/horarios": createHorariosRouter({
       authenticate,
