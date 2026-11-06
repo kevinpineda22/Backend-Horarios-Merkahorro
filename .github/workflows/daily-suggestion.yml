@@ -1,0 +1,38 @@
+name: Daily suggestion runs
+
+# Recalculates the cashier suggestion (sugerido) for every active sede, for the current and the
+# next week (Bogota calendar). Manual runs: Actions -> Daily suggestion runs -> Run workflow.
+on:
+  schedule:
+    - cron: "0 11 * * *" # 11:00 UTC = 06:00 America/Bogota (UTC-5, no DST)
+  workflow_dispatch:
+    inputs:
+      weeks:
+        description: "Weeks to calculate: current, next or both (comma separated)"
+        required: false
+        default: "current,next"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-suggestion
+  cancel-in-progress: false
+
+jobs:
+  recalculate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Recalculate suggestions
+        env:
+          SUGERIDO_CRON_KEY: ${{ secrets.SUGERIDO_CRON_KEY }}
+          BACKEND_URL: ${{ vars.BACKEND_URL || 'https://backend-horarios-merkahorro.vercel.app' }}
+          WEEKS: ${{ inputs.weeks || 'current,next' }}
+        run: |
+          echo "::add-mask::$SUGERIDO_CRON_KEY"
+          node scripts/daily-suggestion.mjs
