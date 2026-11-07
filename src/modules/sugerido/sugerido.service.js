@@ -12,6 +12,8 @@ import { capSlots, countOverRegisters, derivedRegisters, effectiveRegisters, reg
 const METHOD = "forecast-blend-v1";
 // The derived register count changes on the scale of months, so read paths reuse it for a few minutes.
 const REGISTERS_CACHE_TTL_MS = 10 * 60 * 1000;
+// After a failed load the read paths answer "unknown" without touching the database again for this long.
+const REGISTERS_RETRY_AFTER_MS = 60 * 1000;
 // Sales history needed before the target week: the longest look-back any domain module walks.
 export const HISTORY_LOOKBACK_DAYS = Math.max(
   HOLIDAY_LOOKBACK_DAYS,
@@ -59,23 +61,47 @@ const toRegisters = (derived, override) => ({ derived, override: override ?? nul
 export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo, staffPort, absencesPort, now = () => new Date() }) {
   // bodega -> { count, at }. Only the read paths use it; a run always asks the database.
   const registersCache = new Map();
+  const registersFailedAt = new Map(); // bodega -> ms of the last failed load (negative cache)
+  const registersInFlight = new Map(); // bodega -> promise of the load that is covering it
+
+  /** Loads `bodegas` in one query. Never rejects: a failure is remembered and the bodegas stay unknown / stale. */
+  async function loadRegisters(bodegas, at) {
+    await null; // always yield once, so the caller registers the in-flight entry before `finally` clears it
+    try {
+      const counts = await salesRepo.loadRegisterCounts({ bodegas });
+      for (const b of bodegas) {
+        registersCache.set(b, { count: counts[b] ?? 0, at });
+        registersFailedAt.delete(b);
+      }
+    } catch {
+      for (const b of bodegas) registersFailedAt.set(b, at);
+    } finally {
+      for (const b of bodegas) registersInFlight.delete(b);
+    }
+  }
 
   /**
    * Current derived register count per bodega, from the cache or one query for the bodegas still missing.
-   * A failing source degrades to "unknown" (stale cache if any): displaying a sede or validating an edit
-   * must not depend on the analytics database being up.
+   * A failing source degrades to "unknown" (stale cache if any) and is not retried for REGISTERS_RETRY_AFTER_MS:
+   * displaying a sede or validating an edit must not depend on, nor hammer, the analytics database.
+   * Concurrent callers share the load that is already in flight for a bodega.
    */
   async function derivedByBodega(bodegas) {
     const at = now().getTime();
-    const missing = [...new Set(bodegas)].filter((b) => !registersCache.has(b) || at - registersCache.get(b).at >= REGISTERS_CACHE_TTL_MS);
-    if (missing.length > 0) {
-      try {
-        const counts = await salesRepo.loadRegisterCounts({ bodegas: missing });
-        for (const b of missing) registersCache.set(b, { count: counts[b] ?? 0, at });
-      } catch {
-        // keep whatever is cached
-      }
+    const wanted = [...new Set(bodegas)].filter((b) => {
+      const cached = registersCache.get(b);
+      const stale = !cached || at - cached.at >= REGISTERS_CACHE_TTL_MS;
+      const failedAt = registersFailedAt.get(b);
+      return stale && !(failedAt !== undefined && at - failedAt < REGISTERS_RETRY_AFTER_MS);
+    });
+    const pending = new Set(wanted.filter((b) => registersInFlight.has(b)).map((b) => registersInFlight.get(b)));
+    const fresh = wanted.filter((b) => !registersInFlight.has(b));
+    if (fresh.length > 0) {
+      const load = loadRegisters(fresh, at);
+      for (const b of fresh) registersInFlight.set(b, load);
+      pending.add(load);
     }
+    await Promise.all(pending);
     return Object.fromEntries(bodegas.map((b) => [b, registersCache.get(b)?.count ?? 0]));
   }
 

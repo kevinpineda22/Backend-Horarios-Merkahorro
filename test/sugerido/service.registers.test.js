@@ -187,3 +187,48 @@ test("setRegistersOverride: unknown or inactive sede -> 404 and nothing is writt
   await rejectsWith(service.setRegistersOverride("s3", 3), 404, "SEDE_NOT_MAPPED");
   assert.equal(repo.calls.setRegistersOverride.length, 0);
 });
+
+test("outage: a failed load is remembered for 60 s, so read paths do not hit the database on every call", async () => {
+  const { service, calls, state } = setup();
+  state.registers = createHttpError(503, "down", "SALES_DB_UNAVAILABLE");
+  for (let i = 0; i < 3; i += 1) await service.getWeek(USER, "s1", WEEK);
+  await service.listSedes({ role: "admin", sedeIds: null });
+  assert.equal(calls.registers.length, 2, "s1 once, then only B3 once (its own failure is remembered too)");
+
+  state.now = new Date(state.now.getTime() + 61 * 1000);
+  await service.getWeek(USER, "s1", WEEK);
+  assert.equal(calls.registers.length, 3, "retried after the backoff");
+});
+
+test("outage: recovery after the backoff restores the real count", async () => {
+  const { service, state } = setup();
+  state.registers = createHttpError(503, "down", "SALES_DB_UNAVAILABLE");
+  assert.equal((await service.getWeek(USER, "s1", WEEK)).registers.derived, null);
+  state.registers = { B1: 6, B2: 4 };
+  state.now = new Date(state.now.getTime() + 61 * 1000);
+  assert.equal((await service.getWeek(USER, "s1", WEEK)).registers.derived, 10);
+});
+
+test("outage: a stale cached count is kept (not replaced by unknown) while the source is down", async () => {
+  const { service, state } = setup({ registers: { B1: 6, B2: 4 } });
+  await service.getWeek(USER, "s1", WEEK);
+  state.registers = createHttpError(503, "down", "SALES_DB_UNAVAILABLE");
+  state.now = new Date(state.now.getTime() + 11 * 60 * 1000);
+  assert.equal((await service.getWeek(USER, "s1", WEEK)).registers.derived, 10);
+});
+
+test("concurrent reads of the same bodegas share ONE in-flight query", async () => {
+  const ctx = makeDeps({ registers: { B1: 6, B2: 4 } });
+  let release;
+  const gate = new Promise((r) => (release = r));
+  let queries = 0;
+  ctx.deps.salesRepo.loadRegisterCounts = async () => { queries += 1; await gate; return { B1: 6, B2: 4 }; };
+  const service = createSugeridoService(ctx.deps);
+
+  const reads = Promise.all([service.getWeek(USER, "s1", WEEK), service.getWeek(USER, "s1", WEEK), service.getWeek(USER, "s1", WEEK)]);
+  await new Promise((r) => setTimeout(r, 20));
+  release();
+  const weeks = await reads;
+  assert.equal(queries, 1);
+  assert.ok(weeks.every((w) => w.registers.derived === 10));
+});
