@@ -139,6 +139,31 @@ Read DTO additions: `detalles` (as stored), `hasHistoria`, `hasSoporte` (paths a
 
 **Deploy order:** (1) apply 007 in Supabase, (2) deploy the backend, (3) deploy the frontend. Do 1 and 2 back to back: the new backend reads and writes the new columns (it breaks before 007), while the old backend keeps working after 007 except that it cannot create the new shapes (the relaxed ARL check is a superset of the old one).
 
+### Checkout registers cap (migration 008, branch `feat/sugerido-registers`, not applied, not pushed)
+
+Each sede has a fixed number of physical checkout registers ("puestos de pago"). The recommendation never suggests more simultaneous cashiers than registers, and leaders cannot schedule more either.
+
+**Migration step:** apply `db/migrations/008_sugerido_registers.sql` in the SQL editor, then run `db/verification/008_sugerido_registers_verify.sql` (single transaction, ends with ROLLBACK). Rollback: `db/migrations/rollback/008_sugerido_registers.down.sql` (snapshots the overrides into `sugerido_sedes_registers_backup_008` first; redeploy the previous backend before running it). It only adds `sugerido_sedes.registers_override int` (NULL, CHECK 1..50).
+
+**Deploy order: apply 008 BEFORE deploying the backend.** The new backend selects `registers_override` on every `sugerido_sedes` read (sede list, week view, runs), so it fails without the column. The old backend keeps working after 008.
+
+**Where the count comes from:** `effective = override ?? derived ?? null`.
+- `derived` = distinct `caja` per bodega in `merkahorro_siesa.ventas_pdv_resumen_cajeras`, over the 60 days ending at that bodega's latest data date (`fecha > ref - 60 AND fecha <= ref`; for a run `ref` is bounded by the end of the target week). `SIN_CAJA`, blanks and NULL are ignored; a sede sums its bodegas. A total of 0 means unknown (`null`). `caja` is reliable since 2024-06-01. Expected today: copacabana 10, girardota-parque 11, villahermosa 10, barbosa 8, girardota-llano 4, san-juan 3, las-vegas 3.
+- `null` effective = no cap and no check. Unknown never blocks.
+- Read paths (sede list, week view, override validation) cache the derived count per bodega for 10 minutes in memory and degrade to unknown if the sales database fails. A run always queries it fresh and fails like any other sales error.
+
+**Run behaviour (cap applied when the run is computed):** each slot's `suggested = min(suggested, effective)`, so `final` follows when there is no override. `required`, `shortfall` and `status` stay as computed (real demand stays visible; a register cap is not a staff shortage). The run `inputs.registers` stores `{ derived, override, effective }` and, when any slot's `required` exceeds the registers, `warnings` gets one plain string `"REGISTERS_CAP: N franjas requieren más cajeras que los X puestos de pago de la sede; el sugerido se limitó a X."` (warnings are strings, the frontend drops anything else). **Changing an override only affects NEW runs**: the stored run is not re-capped on read. The daily recompute or the leader's "recalcular" refreshes it. The week payload exposes both the snapshot (`inputs.registers`) and the current values (`registers`), so the UI can tell the run is stale when they differ.
+
+**Overrides ("Tu cambio"):** `PUT /sugerido/sedes/:sedeId/weeks/:weekStart/overrides` answers `422 REGISTERS_EXCEEDED` when any `value` is greater than the current effective registers (removals with `null` are never checked). Message: `La sede tiene {n} puestos de pago: no puedes programar más cajeras a la vez.` Body: `{ ok:false, error, code:"REGISTERS_EXCEEDED", details:{ registers:n, exceeded:[{fecha,franja,value}] } }`. Nothing is written.
+
+**API contract**
+- `registers` object everywhere: `{ derived: int|null, override: int|null, effective: int|null }`.
+- `GET /sugerido/sedes` items: `{ sedeId, nombre, bodegas, activo, registers }` (one grouped query for all bodegas).
+- `GET /sugerido/sedes/:sedeId/weeks/:weekStart` and the `POST .../runs` response: new top-level `registers` (current values; also present when `run` is null) plus `inputs.registers` (snapshot of the run).
+- `PUT /sugerido/sedes/:sedeId/registers` (admin only, like `/settings`): body `{ "override": 1..50 | null }` (null clears it). Returns `{ data: { derived, override, effective } }`. 400 `VALIDATION_ERROR` for anything else, 404 `SEDE_NOT_MAPPED` for an unknown or inactive sede, 403 for non-admins.
+
+Side effect on tests: listing sedes now touches the sales pool (lazily, on the first request), so `test/sugerido/wiring.test.js` no longer asserts it does not.
+
 ### Environment variables (names only — never commit values)
 
 | Where | Variable | Notes |
@@ -173,6 +198,7 @@ Full task list with file names: Engram `sdd/sugerido-cajeras/tasks` (see below).
 4. Frontend: user pushes `juan`. The HR operational-restriction field hides itself if trazabilidad is not updated yet.
 5. Novedades ARL (006): apply `006_novedades_arl.sql` -> deploy Backend-Horarios -> deploy the frontend (see the Novedades section above).
 6. Novedades details (007): apply `007_novedades_detalles.sql` (after 006) -> deploy Backend-Horarios back to back -> deploy the frontend.
+7. Registers cap (008): apply `008_sugerido_registers.sql` -> run its verify script -> deploy Backend-Horarios (it breaks before 008) -> deploy the frontend. Recompute the weeks you want capped.
 
 ## Working agreement
 
