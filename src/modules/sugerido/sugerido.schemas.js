@@ -110,8 +110,8 @@ export const settingsPatchSchema = z
 export const MAX_REGISTERS = 50;
 
 export const registersBodySchema = z.object({
-  override: z.union(
-    [z.number().int().min(1).max(MAX_REGISTERS), z.null()],
-    { errorMap: () => ({ message: `El número de puestos debe ser un entero entre 1 y ${MAX_REGISTERS}, o null para quitar el ajuste` }) },
-  ),
+  // One refine (not a union of number|null) so every bad value, in range or not, gets the same Spanish message.
+  override: z.unknown().refine((v) => v === null || (Number.isInteger(v) && v >= 1 && v <= MAX_REGISTERS), {
+    message: `El número de puestos debe ser un entero entre 1 y ${MAX_REGISTERS}, o null para quitar el ajuste`,
+  }),
 });
