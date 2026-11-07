@@ -5,20 +5,20 @@ const { createNovedadSchema, patchNovedadSchema, anularSchema, listQuerySchema, 
   "../../src/modules/novedades/novedades.schemas.js"
 );
 
-const base = { cedula: "1020304050", tipo: "Vacaciones", fechaInicio: "2026-11-03", fechaFin: "2026-11-14" };
+const base = { cedula: "1020304050", tipo: "Vacaciones", fechaInicio: "2026-11-03", fechaFin: "2026-11-14", detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } };
 const ID = "3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab";
 const ADJ = `2026/11/${ID}-adjunto.pdf`;
 const HIS = `2026/11/${ID}-historia.pdf`;
 const SOP = `2026/11/${ID}-soporte.png`;
 // A complete, valid body for each creatable tipo.
 const VALID = {
-  Vacaciones: {},
+  Vacaciones: { detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } },
   Permisos: { detalles: { motivo: "Cita médica" } },
   "Permisos académicos": { detalles: { modo: "libre", dias: [{ fecha: "2026-11-03" }, { fecha: "2026-11-14" }], detalle: "Examen final" } },
   Licencias: { subtipo: "Remunerada", detalles: { dias: 2, motivo: "Calamidad" } },
-  Incapacidades: { subtipo: "Enfermedad general", observacion: "Reposo", adjuntoPath: ADJ, detalles: { duracion: "Menor o igual a 3 días" } },
+  Incapacidades: { subtipo: "Enfermedad general", fechaFin: "2026-11-05", observacion: "Reposo", adjuntoPath: ADJ, detalles: { duracion: "Menor o igual a 3 días" } },
 };
-const valid = (tipo, extra = {}) => ({ ...base, tipo, ...VALID[tipo], ...extra });
+const valid = (tipo, extra = {}) => ({ ...base, detalles: {}, tipo, ...VALID[tipo], ...extra });
 const ok = (schema, v) => {
   const r = schema.safeParse(v);
   assert.equal(r.success, true, JSON.stringify(r.error?.issues));
@@ -38,7 +38,7 @@ test("create: valid body parses; unknown keys (created_by, anulada) are stripped
     firmaPath: null,
     historiaPath: null,
     soportePath: null,
-    detalles: {},
+    detalles: { periodo: "2026", fechaRegreso: "2026-11-16" },
   });
 });
 
@@ -69,6 +69,7 @@ test("create: tipo in NFD form is normalized to the canonical NFC label", () => 
 
 const ARL = {
   tipo: "Incapacidades",
+  detalles: {},
   subtipo: "ARL",
   observacion: "Accidente de trabajo",
   adjuntoPath: ADJ,
@@ -297,13 +298,13 @@ test("list query: ?cedula=0012345 equals 12345; letters and short normalized val
 const issuesOf = (schema, v) => schema.safeParse(v).error?.issues.map((i) => `${i.path.join(".")}: ${i.message}`).sort() ?? [];
 
 test("create: detalles defaults to {} and must be a plain object", () => {
-  assert.deepEqual(ok(createNovedadSchema, base).detalles, {});
+  assert.deepEqual(ok(createNovedadSchema, { ...base, detalles: undefined, tipo: "Incapacidades", subtipo: "ARL", observacion: "o", adjuntoPath: ADJ, historiaPath: HIS, firmaPath: `2026/11/${ID}-firma.png` }).detalles, {});
   for (const detalles of [null, [], "x", 5]) bad(createNovedadSchema, { ...base, detalles });
   assert.deepEqual(issuesOf(createNovedadSchema, { ...base, detalles: [] }), ["detalles: detalles debe ser un objeto"]);
 });
 
 test("create: every tipo validates its detalles with Spanish messages at body.detalles.<field>", () => {
-  assert.deepEqual(issuesOf(createNovedadSchema, { ...base, tipo: "Permisos" }), ["detalles.motivo: El motivo del permiso es obligatorio"]);
+  assert.deepEqual(issuesOf(createNovedadSchema, { ...base, tipo: "Permisos", detalles: {} }), ["detalles.motivo: El motivo del permiso es obligatorio"]);
   assert.deepEqual(issuesOf(createNovedadSchema, valid("Licencias", { detalles: {} })), [
     "detalles.dias: Los días de la licencia deben ser un número entero mayor a 0",
     "detalles.motivo: El motivo de la licencia es obligatorio",
@@ -311,7 +312,7 @@ test("create: every tipo validates its detalles with Spanish messages at body.de
   assert.deepEqual(issuesOf(createNovedadSchema, valid("Incapacidades", { detalles: {} })), [
     "detalles.duracion: Debes indicar la duración: Mayor a 3 días o Menor o igual a 3 días.",
   ]);
-  assert.deepEqual(issuesOf(createNovedadSchema, valid("Vacaciones", { detalles: { extra: 1 } })), ["detalles.extra: Campo no permitido: extra"]);
+  assert.deepEqual(issuesOf(createNovedadSchema, valid("Vacaciones", { detalles: { periodo: "2026", fechaRegreso: "2026-11-16", extra: 1 } })), ["detalles.extra: Campo no permitido: extra"]);
   assert.deepEqual(issuesOf(createNovedadSchema, valid("Permisos", { detalles: { motivo: "m", porHoras: true, horas: [{ fecha: "2026-11-03", inicio: "10:00", fin: "09:00" }] } })), [
     "detalles.horas.0.fin: La hora fin debe ser posterior a la hora inicio",
   ]);

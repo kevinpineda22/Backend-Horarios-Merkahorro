@@ -11,8 +11,8 @@ const planner = Object.freeze({ role: "planner", sedeIds: ["s1"] });
 const viewer = Object.freeze({ role: "viewer", sedeIds: ["s1"] });
 const user = { id: "user-1", email: "lider@merka.co" };
 
-const base = { cedula: "1020304050", tipo: "Vacaciones", subtipo: null, fechaInicio: "2026-11-03", fechaFin: "2026-11-14", observacion: null, sedeId: "s1", sedeNombre: null, adjuntoPath: null, firmaPath: null };
-const arl = { ...base, tipo: "Incapacidades", subtipo: "ARL", observacion: "Accidente de trabajo", adjuntoPath: ADJ, firmaPath: FIR, historiaPath: HIS };
+const base = { cedula: "1020304050", tipo: "Vacaciones", subtipo: null, fechaInicio: "2026-11-03", fechaFin: "2026-11-14", observacion: null, sedeId: "s1", sedeNombre: null, adjuntoPath: null, firmaPath: null, detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } };
+const arl = { ...base, tipo: "Incapacidades", subtipo: "ARL", observacion: "Accidente de trabajo", adjuntoPath: ADJ, firmaPath: FIR, historiaPath: HIS, detalles: {} };
 const row = (o) => ({ cedula: "1020304050", tipo: "Permisos", fecha_inicio: "2026-11-10", fecha_fin: "2026-11-15", sede_id: "s1", created_by: "x", ...o });
 const arlRow = (o) => row({ id: ID_A, tipo: "Incapacidades", subtipo: "ARL", observacion: "o", adjunto_path: ADJ, firma_path: FIR, historia_path: HIS, responsable_id: "someone", responsable_nombre: "Otra Persona", ...o });
 
@@ -175,7 +175,7 @@ test("update: leaving ARL for enfermedad general drops firma and responsable but
 test("update: leaving ARL for another tipo needs an explicit subtipo null", async () => {
   const { svc, repo } = make({ seed: [arlRow()] });
   await rejects(svc.update(admin, user, ID_A, { tipo: "Vacaciones" }), 400, "VALIDATION_ERROR");
-  await svc.update(admin, user, ID_A, { tipo: "Vacaciones", subtipo: null });
+  await svc.update(admin, user, ID_A, { tipo: "Vacaciones", subtipo: null, detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } });
   const { patch } = repo.calls.update[0];
   assert.equal(patch.tipo, "Vacaciones");
   assert.equal(patch.subtipo, null);

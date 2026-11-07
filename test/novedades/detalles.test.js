@@ -7,7 +7,8 @@ const { validateDetalles, DURACIONES_ENFERMEDAD_GENERAL, MODOS_PERMISO_ACADEMICO
 
 const range = { fechaInicio: "2026-11-03", fechaFin: "2026-11-07" };
 const st = (tipo, detalles, extra = {}) => ({ tipo, subtipo: null, ...range, detalles, ...extra });
-const eg = (detalles) => st("Incapacidades", detalles, { subtipo: "Enfermedad general" });
+const short = { fechaInicio: "2026-11-03", fechaFin: "2026-11-05" };
+const eg = (detalles, extra = {}) => st("Incapacidades", detalles, { subtipo: "Enfermedad general", ...extra });
 const lic = (detalles) => st("Licencias", detalles, { subtipo: "Remunerada" });
 const run = (state, opts) => validateDetalles(state, opts);
 const issueMap = (state, opts) => Object.fromEntries(run(state, opts).issues.map((i) => [i.path, i.message]));
@@ -33,7 +34,7 @@ test("detalles must be a plain object (null, arrays and scalars are rejected)", 
 });
 
 test("unknown keys are rejected with the key in the path (strict), for every tipo", () => {
-  assert.deepEqual(issueMap(st("Vacaciones", { extra: 1 })), { "detalles.extra": "Campo no permitido: extra" });
+  assert.deepEqual(issueMap(st("Vacaciones", { periodo: "2026", fechaRegreso: "2026-11-07", extra: 1 })), { "detalles.extra": "Campo no permitido: extra" });
   assert.deepEqual(paths(eg({ duracion: "Mayor a 3 días", otro: 1, mas: 2 })), ["detalles.mas", "detalles.otro"]);
   assert.deepEqual(paths(st("Día de la Familia", { x: 1 })), ["detalles.x"]);
   assert.deepEqual(paths(st("Incapacidades", { duracion: "Mayor a 3 días" }, { subtipo: "ARL" })), ["detalles.duracion"]);
@@ -50,7 +51,19 @@ test("Enfermedad general: duracion is required and limited to the two labels", (
   assert.deepEqual(paths(eg({ duracion: "Mayor a 5" })), ["detalles.duracion"]);
   assert.deepEqual(paths(eg({ duracion: null })), ["detalles.duracion"]);
   assert.deepEqual(okData(eg({ duracion: "Mayor a 3 días" })), { duracion: "Mayor a 3 días" });
-  assert.deepEqual(okData(eg({ duracion: "Menor o igual a 3 días" })), { duracion: "Menor o igual a 3 días" });
+  assert.deepEqual(okData(eg({ duracion: "Menor o igual a 3 días" }, short)), { duracion: "Menor o igual a 3 días" });
+});
+
+test("Enfermedad general: duracion must agree with the inclusive day count (> 3 days is 'Mayor a 3 días')", () => {
+  const menor = { duracion: "Menor o igual a 3 días" };
+  const msg = "Con más de 3 días la duración es «Mayor a 3 días».";
+  assert.equal(issueMap(eg(menor))["detalles.duracion"], msg); // 5 days
+  assert.deepEqual(paths(eg(menor, { fechaInicio: "2026-11-03", fechaFin: "2026-11-06" })), ["detalles.duracion"]); // 4 days
+  assert.deepEqual(paths(eg(menor, short)), []); // exactly 3 days
+  assert.deepEqual(paths(eg(menor, { fechaInicio: "2026-11-03", fechaFin: "2026-11-03" })), []); // 1 day
+  assert.deepEqual(paths(eg({ duracion: "Mayor a 3 días" }, { fechaInicio: "2026-11-03", fechaFin: "2026-11-04" })), []); // not the reverse
+  assert.deepEqual(paths(eg(menor), { lenient: true }), ["detalles.duracion"], "lenient applies it when dates and duracion are present");
+  assert.deepEqual(paths(eg({}), { lenient: true }), []);
 });
 
 test("Enfermedad general: a decomposed (NFD) label is normalized", () => {
@@ -64,6 +77,8 @@ test("Licencias: dias (integer > 0) and motivo are required", () => {
   assert.equal(m["detalles.motivo"], "El motivo de la licencia es obligatorio");
   for (const dias of [0, -1, 1.5, "3", null]) assert.deepEqual(paths(lic({ dias, motivo: "m" })), ["detalles.dias"], String(dias));
   assert.deepEqual(paths(lic({ dias: 2, motivo: "   " })), ["detalles.motivo"]);
+  assert.deepEqual(paths(lic({ dias: 366, motivo: "m" })), []);
+  assert.deepEqual(paths(lic({ dias: 367, motivo: "m" })), ["detalles.dias"]);
 });
 
 test("Licencias: motivo <= 1000, liderAprueba <= 120, fechaAprobacion a real date; optionals may be null/empty", () => {
@@ -127,6 +142,7 @@ test("Permisos: horas without porHoras = true are rejected; porHoras false drops
 });
 
 // ---- Permisos académicos -----------------------------------------------------------------------
+const diaH = (fecha, inicio = "08:00", fin = "10:00") => ({ fecha, inicio, fin });
 const acad = (extra, dates = range) =>
   st("Permisos académicos", { modo: "libre", dias: [{ fecha: range.fechaInicio }, { fecha: range.fechaFin }], detalle: "Examen final", ...extra }, dates);
 
@@ -164,27 +180,49 @@ test("Permisos académicos: days are real, unique dates", () => {
   assert.ok(paths(acad({ dias: many })).includes("detalles.dias"));
 });
 
-test("Permisos académicos parcial: inicio/fin required (HH:MM, fin > inicio); other modes reject them", () => {
-  assert.deepEqual(paths(acad({ modo: "parcial" })), ["detalles.fin", "detalles.inicio"]);
-  assert.equal(issueMap(acad({ modo: "parcial" }))["detalles.inicio"], "La hora de inicio es obligatoria para el modo parcial");
-  assert.deepEqual(paths(acad({ modo: "parcial", inicio: "9:00", fin: "10:00" })), ["detalles.inicio"]);
-  assert.deepEqual(paths(acad({ modo: "parcial", inicio: "10:00", fin: "10:00" })), ["detalles.fin"]);
-  assert.deepEqual(paths(acad({ modo: "parcial", inicio: "11:00", fin: "10:00" })), ["detalles.fin"]);
-  const data = okData(acad({ modo: "parcial", inicio: "08:00", fin: "10:00" }));
-  assert.equal(data.inicio, "08:00");
-  assert.equal(data.fin, "10:00");
-  assert.deepEqual(paths(acad({ modo: "libre", inicio: "08:00", fin: "10:00" })), ["detalles.fin", "detalles.inicio"]);
+test("Permisos académicos parcial: per-day inicio/fin required (HH:MM, fin > inicio)", () => {
+  const dias = (o = {}) => [{ ...diaH("2026-11-03", "08:00", "10:00"), ...o }, diaH("2026-11-07", "14:00", "16:30")];
+  const parcial = (d) => acad({ modo: "parcial", dias: d });
+  assert.deepEqual(paths(acad({ modo: "parcial" })), ["detalles.dias.0.fin", "detalles.dias.0.inicio", "detalles.dias.1.fin", "detalles.dias.1.inicio"]);
+  assert.equal(issueMap(acad({ modo: "parcial" }))["detalles.dias.0.inicio"], "La hora de inicio es obligatoria para el modo parcial");
+  assert.equal(issueMap(acad({ modo: "parcial" }))["detalles.dias.0.fin"], "La hora de fin es obligatoria para el modo parcial");
+  assert.deepEqual(paths(parcial(dias({ inicio: "9:00" }))), ["detalles.dias.0.inicio"]);
+  assert.deepEqual(paths(parcial(dias({ inicio: "10:00", fin: "10:00" }))), ["detalles.dias.0.fin"]);
+  assert.deepEqual(paths(parcial(dias({ inicio: "11:00", fin: "10:00" }))), ["detalles.dias.0.fin"]);
+  assert.deepEqual(paths(parcial([diaH("2026-11-03"), { fecha: "2026-11-07", inicio: "08:00" }])), ["detalles.dias.1.fin"]);
+  assert.deepEqual(okData(parcial(dias())).dias, [diaH("2026-11-03", "08:00", "10:00"), diaH("2026-11-07", "14:00", "16:30")]);
+  const sorted = okData(parcial([diaH("2026-11-07", "14:00", "16:00"), diaH("2026-11-03")]));
+  assert.deepEqual(sorted.dias.map((d) => [d.fecha, d.inicio]), [["2026-11-03", "08:00"], ["2026-11-07", "14:00"]]);
+});
+
+test("Permisos académicos libre / redistribuir forbid per-day hours; top-level inicio/fin are unknown keys", () => {
+  for (const modo of ["libre", "redistribuir"]) {
+    assert.deepEqual(paths(acad({ modo, dias: [diaH("2026-11-03"), { fecha: "2026-11-07" }] })), ["detalles.dias.0.fin", "detalles.dias.0.inicio"], modo);
+    assert.equal(issueMap(acad({ modo, dias: [{ fecha: "2026-11-03", inicio: "08:00" }, { fecha: "2026-11-07" }] }))["detalles.dias.0.inicio"], "Solo el modo parcial admite horario");
+  }
+  for (const modo of MODOS_PERMISO_ACADEMICO) {
+    const dias = modo === "parcial" ? { dias: [diaH("2026-11-03"), diaH("2026-11-07")] } : {};
+    assert.deepEqual(paths(acad({ modo, ...dias, inicio: "08:00", fin: "10:00" })), ["detalles.fin", "detalles.inicio"], modo);
+  }
 });
 
 // ---- Vacaciones --------------------------------------------------------------------------------
-test("Vacaciones: periodo (4-digit year) and fechaRegreso (>= fechaFin) are optional", () => {
-  assert.deepEqual(okData(st("Vacaciones", {})), {});
+test("Vacaciones: periodo (4-digit year) and fechaRegreso (>= fechaFin) are required", () => {
+  const m = issueMap(st("Vacaciones", {}));
+  assert.equal(m["detalles.periodo"], "El periodo es obligatorio (año de 4 dígitos)");
+  assert.equal(m["detalles.fechaRegreso"], "La fecha de regreso es obligatoria");
+  assert.deepEqual(paths(st("Vacaciones", { periodo: null, fechaRegreso: null })), ["detalles.fechaRegreso", "detalles.periodo"]);
+  assert.deepEqual(paths(st("Vacaciones", { periodo: "2026", fechaRegreso: "" })), ["detalles.fechaRegreso"]);
   assert.deepEqual(okData(st("Vacaciones", { periodo: "2026", fechaRegreso: "2026-11-07" })), { periodo: "2026", fechaRegreso: "2026-11-07" });
-  assert.deepEqual(okData(st("Vacaciones", { periodo: 2026 })), { periodo: "2026" }, "a numeric year is stored as text");
-  assert.deepEqual(okData(st("Vacaciones", { periodo: null, fechaRegreso: null })), {});
-  for (const periodo of ["26", "20266", "abcd", 12345, 2026.5]) assert.deepEqual(paths(st("Vacaciones", { periodo })), ["detalles.periodo"], String(periodo));
-  assert.equal(issueMap(st("Vacaciones", { fechaRegreso: "2026-11-06" }))["detalles.fechaRegreso"], "La fecha de regreso no puede ser anterior a fechaFin");
-  assert.deepEqual(paths(st("Vacaciones", { fechaRegreso: "2026-02-30" })), ["detalles.fechaRegreso"]);
+  assert.deepEqual(okData(st("Vacaciones", { periodo: 2026, fechaRegreso: "2026-11-10" })), { periodo: "2026", fechaRegreso: "2026-11-10" }, "a numeric year is stored as text");
+  for (const periodo of ["26", "20266", "abcd", 12345, 2026.5]) assert.deepEqual(paths(st("Vacaciones", { periodo, fechaRegreso: "2026-11-07" })), ["detalles.periodo"], String(periodo));
+  assert.equal(issueMap(st("Vacaciones", { periodo: "2026", fechaRegreso: "2026-11-06" }))["detalles.fechaRegreso"], "La fecha de regreso no puede ser anterior a fechaFin");
+  assert.deepEqual(paths(st("Vacaciones", { periodo: "2026", fechaRegreso: "2026-02-30" })), ["detalles.fechaRegreso"]);
+});
+
+test("Vacaciones lenient (legacy rows): both stay optional", () => {
+  assert.deepEqual(okData(st("Vacaciones", {}), { lenient: true }), {});
+  assert.deepEqual(okData(st("Vacaciones", { periodo: null, fechaRegreso: null }), { lenient: true }), {});
 });
 
 test("Día de la Familia only accepts an empty detalles", () => {

@@ -15,6 +15,8 @@ import { toEpochDay } from "../../sugerido/domain/dates.js";
 export const DURACIONES_ENFERMEDAD_GENERAL = Object.freeze(["Mayor a 3 días", "Menor o igual a 3 días"]);
 export const MODOS_PERMISO_ACADEMICO = Object.freeze(["parcial", "libre", "redistribuir"]);
 export const MAX_DIAS_DETALLE = 62;
+export const MAX_DIAS_LICENCIA = 366;
+const DURACION_MENOR = DURACIONES_ENFERMEDAD_GENERAL[1];
 
 const MAX_TEXT = 1000;
 const MAX_LIDER = 120;
@@ -74,16 +76,25 @@ const optionalTime = z
 // ---- schemas per tipo --------------------------------------------------------------------------
 const empty = () => z.object({}).strict();
 
-function enfermedadGeneral(need) {
+function enfermedadGeneral(need, range) {
   const message = `Debes indicar la duración: ${DURACIONES_ENFERMEDAD_GENERAL.join(" o ")}.`;
-  return z.object({ duracion: need(oneOf(DURACIONES_ENFERMEDAD_GENERAL, message)) }).strict();
+  return z
+    .object({ duracion: need(oneOf(DURACIONES_ENFERMEDAD_GENERAL, message)) })
+    .strict()
+    .superRefine((d, ctx) => {
+      // The old form derived the duration from the dates: more than 3 inclusive days is always "Mayor a 3 días".
+      if (d.duracion !== DURACION_MENOR || !isIsoDate(range.fechaInicio) || !isIsoDate(range.fechaFin)) return;
+      if (toEpochDay(range.fechaFin) - toEpochDay(range.fechaInicio) + 1 > 3) {
+        ctx.addIssue({ code: "custom", path: ["duracion"], message: "Con más de 3 días la duración es «Mayor a 3 días»." });
+      }
+    });
 }
 
 function licencias(need) {
   const diasMsg = "Los días de la licencia deben ser un número entero mayor a 0";
   return z
     .object({
-      dias: need(z.number({ required_error: diasMsg, invalid_type_error: diasMsg }).int(diasMsg).positive(diasMsg)),
+      dias: need(z.number({ required_error: diasMsg, invalid_type_error: diasMsg }).int(diasMsg).positive(diasMsg).max(MAX_DIAS_LICENCIA, `Los días de la licencia no pueden superar ${MAX_DIAS_LICENCIA}`)),
       motivo: need(text("El motivo", MAX_TEXT, "El motivo de la licencia es obligatorio")),
       liderAprueba: optionalText("El líder que aprueba", MAX_LIDER),
       fechaAprobacion: optionalDate,
@@ -128,7 +139,7 @@ function permisos(need, range) {
 
 function permisosAcademicos(need, range, lenient) {
   const diasMsg = "Debes seleccionar al menos un día";
-  const dia = z.object({ fecha: dateField }).strict();
+  const dia = z.object({ fecha: dateField, inicio: optionalTime, fin: optionalTime }).strict();
   return z
     .object({
       modo: need(oneOf(MODOS_PERMISO_ACADEMICO, `Debes indicar el modo: ${MODOS_PERMISO_ACADEMICO.slice(0, -1).join(", ")} o ${MODOS_PERMISO_ACADEMICO.at(-1)}`)),
@@ -138,8 +149,6 @@ function permisosAcademicos(need, range, lenient) {
           .min(1, diasMsg)
           .max(MAX_DIAS_DETALLE, `No puedes seleccionar más de ${MAX_DIAS_DETALLE} días`),
       ),
-      inicio: optionalTime,
-      fin: optionalTime,
       detalle: need(text("El detalle", MAX_TEXT, "El detalle del permiso académico es obligatorio")),
     })
     .strict()
@@ -147,13 +156,18 @@ function permisosAcademicos(need, range, lenient) {
       const add = (path, message, root) =>
         ctx.addIssue({ code: "custom", path, message, ...(root ? { params: { root } } : {}) });
 
-      if (d.modo === "parcial") {
-        if (!lenient && d.inicio === undefined) add(["inicio"], "La hora de inicio es obligatoria para el modo parcial");
-        if (!lenient && d.fin === undefined) add(["fin"], "La hora de fin es obligatoria para el modo parcial");
-        if (isHhmm(d.inicio) && isHhmm(d.fin) && d.fin <= d.inicio) add(["fin"], MSG_FIN_AFTER_INICIO);
-      } else if (d.modo !== undefined) {
-        if (d.inicio !== undefined) add(["inicio"], "Solo el modo parcial admite horario");
-        if (d.fin !== undefined) add(["fin"], "Solo el modo parcial admite horario");
+      // Hours are per day (like the old EstudioForm): required for parcial, forbidden for libre / redistribuir.
+      if (Array.isArray(d.dias) && d.modo !== undefined) {
+        d.dias.forEach((x, i) => {
+          if (d.modo === "parcial") {
+            if (!lenient && x.inicio === undefined) add(["dias", i, "inicio"], "La hora de inicio es obligatoria para el modo parcial");
+            if (!lenient && x.fin === undefined) add(["dias", i, "fin"], "La hora de fin es obligatoria para el modo parcial");
+            if (isHhmm(x.inicio) && isHhmm(x.fin) && x.fin <= x.inicio) add(["dias", i, "fin"], MSG_FIN_AFTER_INICIO);
+          } else {
+            if (x.inicio !== undefined) add(["dias", i, "inicio"], "Solo el modo parcial admite horario");
+            if (x.fin !== undefined) add(["dias", i, "fin"], "Solo el modo parcial admite horario");
+          }
+        });
       }
 
       if (!Array.isArray(d.dias) || d.dias.length === 0 || !d.dias.every((x) => isIsoDate(x.fecha))) return;
@@ -174,7 +188,7 @@ function permisosAcademicos(need, range, lenient) {
     });
 }
 
-function vacaciones(range) {
+function vacaciones(range, lenient) {
   const periodoMsg = "El periodo debe ser un año de 4 dígitos";
   return z
     .object({
@@ -188,6 +202,8 @@ function vacaciones(range) {
     })
     .strict()
     .superRefine((d, ctx) => {
+      if (!lenient && d.periodo === undefined) ctx.addIssue({ code: "custom", path: ["periodo"], message: "El periodo es obligatorio (año de 4 dígitos)" });
+      if (!lenient && d.fechaRegreso === undefined) ctx.addIssue({ code: "custom", path: ["fechaRegreso"], message: "La fecha de regreso es obligatoria" });
       if (isIsoDate(d.fechaRegreso) && isIsoDate(range.fechaFin) && d.fechaRegreso < range.fechaFin) {
         ctx.addIssue({ code: "custom", path: ["fechaRegreso"], message: "La fecha de regreso no puede ser anterior a fechaFin" });
       }
@@ -199,7 +215,7 @@ function schemaFor({ tipo, subtipo, fechaInicio, fechaFin }, lenient) {
   const range = { fechaInicio, fechaFin };
   switch (tipo) {
     case "Incapacidades":
-      return subtipo === "Enfermedad general" ? enfermedadGeneral(need) : empty();
+      return subtipo === "Enfermedad general" ? enfermedadGeneral(need, range) : empty();
     case "Licencias":
       return licencias(need);
     case "Permisos":
@@ -207,7 +223,7 @@ function schemaFor({ tipo, subtipo, fechaInicio, fechaFin }, lenient) {
     case "Permisos académicos":
       return permisosAcademicos(need, range, lenient);
     case "Vacaciones":
-      return vacaciones(range);
+      return vacaciones(range, lenient);
     default:
       return empty();
   }

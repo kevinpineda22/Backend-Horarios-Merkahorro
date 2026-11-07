@@ -12,7 +12,7 @@ const HIS = `2026/11/${UUID}-historia.pdf`;
 const HIS2 = `2026/11/aaaaaaaa-5d4a-4b6e-9a1c-0123456789ab-historia.pdf`;
 const SOP = `2026/11/${UUID}-soporte.jpg`;
 
-const base = { cedula: "1020304050", tipo: "Vacaciones", subtipo: null, fechaInicio: "2026-11-03", fechaFin: "2026-11-07", observacion: null, sedeId: "s1", sedeNombre: null, adjuntoPath: null, firmaPath: null, historiaPath: null, soportePath: null, detalles: {} };
+const base = { cedula: "1020304050", tipo: "Vacaciones", subtipo: null, fechaInicio: "2026-11-03", fechaFin: "2026-11-07", observacion: null, sedeId: "s1", sedeNombre: null, adjuntoPath: null, firmaPath: null, historiaPath: null, soportePath: null, detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } };
 const row = (o) => ({ id: ID_A, cedula: "1020304050", tipo: "Permisos", fecha_inicio: "2026-11-03", fecha_fin: "2026-11-07", sede_id: "s1", created_by: "x", detalles: {}, ...o });
 
 function make({ seed, files = [ADJ, ADJ2, FIR, HIS, HIS2, SOP] } = {}) {
@@ -62,7 +62,7 @@ test("create: the per-type rules are enforced in the service too, with body.deta
 
 test("create Incapacidades enfermedad general: historia is optional up to 3 days and stored when sent", async () => {
   const { svc, repo } = make();
-  const eg = { ...base, tipo: "Incapacidades", subtipo: "Enfermedad general", observacion: "Reposo", adjuntoPath: ADJ, detalles: { duracion: "Menor o igual a 3 días" } };
+  const eg = { ...base, tipo: "Incapacidades", subtipo: "Enfermedad general", fechaFin: "2026-11-05", observacion: "Reposo", adjuntoPath: ADJ, detalles: { duracion: "Menor o igual a 3 días" } };
   await svc.create(admin, user, eg);
   await svc.create(admin, user, { ...eg, adjuntoPath: ADJ2, historiaPath: HIS });
   assert.equal(repo.calls.insert[0].historia_path, null);
@@ -101,19 +101,20 @@ test("update: a legacy row (detalles {}) touched on tipo, subtipo or detalles mu
 test("update tipo: details of the previous tipo are dropped (not carried over) and the new ones are required", async () => {
   const { svc, repo } = make({ seed: [row({ detalles: { motivo: "m" } })] });
   assert.deepEqual(Object.keys(await details(svc.update(admin, user, ID_A, { tipo: "Licencias", subtipo: "Remunerada" }))).sort(), ["body.detalles.dias", "body.detalles.motivo"]);
-  const { data } = await svc.update(admin, user, ID_A, { tipo: "Vacaciones" });
-  assert.deepEqual(repo.calls.update[0].patch.detalles, {});
-  assert.deepEqual(data.detalles, {});
+  assert.deepEqual(Object.keys(await details(svc.update(admin, user, ID_A, { tipo: "Vacaciones" }))).sort(), ["body.detalles.fechaRegreso", "body.detalles.periodo"]);
+  const { data } = await svc.update(admin, user, ID_A, { tipo: "Vacaciones", detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } });
+  assert.deepEqual(repo.calls.update[0].patch.detalles, { periodo: "2026", fechaRegreso: "2026-11-16" }, "nothing of the previous tipo is carried over");
+  assert.deepEqual(data.detalles, { periodo: "2026", fechaRegreso: "2026-11-16" });
 });
 
 test("update tipo: files that no longer belong to the new tipo are cleared automatically", async () => {
   const seed = row({ tipo: "Incapacidades", subtipo: "ARL", adjunto_path: ADJ, firma_path: FIR, historia_path: HIS, responsable_id: "r", responsable_nombre: "R", observacion: "o" });
   const { svc, repo } = make({ seed: [seed] });
-  await svc.update(admin, user, ID_A, { tipo: "Vacaciones", subtipo: null });
+  await svc.update(admin, user, ID_A, { tipo: "Vacaciones", subtipo: null, detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } });
   const { patch } = repo.calls.update[0];
   for (const k of ["adjunto_path", "firma_path", "historia_path", "responsable_id", "responsable_nombre"]) assert.equal(patch[k], null, k);
   const p = make({ seed: [row({ soporte_path: SOP, detalles: { motivo: "m" } })] });
-  await p.svc.update(admin, user, ID_A, { tipo: "Vacaciones" });
+  await p.svc.update(admin, user, ID_A, { tipo: "Vacaciones", detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } });
   assert.equal(p.repo.calls.update[0].patch.soporte_path, null);
 });
 
@@ -150,6 +151,15 @@ test("update: duration change to 'Mayor a 3 días' demands the historia", async 
 });
 
 // ---- update: touched tier (legacy rows) ---------------------------------------------------------
+test("update: Vacaciones legacy row ({}) stays editable on dates but resending tipo or detalles requires periodo and fechaRegreso", async () => {
+  const { svc, repo } = make({ seed: [row({ tipo: "Vacaciones" })] });
+  await svc.update(admin, user, ID_A, { fechaFin: "2026-11-10" });
+  assert.equal(repo.calls.update.length, 1);
+  assert.deepEqual(Object.keys(await details(svc.update(admin, user, ID_A, { tipo: "Vacaciones" }))).sort(), ["body.detalles.fechaRegreso", "body.detalles.periodo"]);
+  assert.deepEqual(Object.keys(await details(svc.update(admin, user, ID_A, { detalles: { periodo: "2026" } }))), ["body.detalles.fechaRegreso"]);
+  assert.equal(repo.calls.update.length, 1);
+});
+
 test("update: legacy rows stay editable on fields that do not touch tipo, subtipo or detalles", async () => {
   const { svc, repo } = make({ seed: [row({ tipo: "Licencias", subtipo: "Remunerada" })] });
   await svc.update(admin, user, ID_A, { observacion: "nota", fechaFin: "2026-11-20", sedeNombre: "X" });

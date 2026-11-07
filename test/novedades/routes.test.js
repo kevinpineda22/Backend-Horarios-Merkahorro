@@ -20,7 +20,7 @@ const ACCESS = {
 };
 
 const row = (o) => ({ cedula: "1020304050", tipo: "Permisos", fecha_inicio: "2026-11-10", fecha_fin: "2026-11-20", sede_id: "s1", ...o });
-const body = { cedula: "1020304050", tipo: "Vacaciones", fechaInicio: "2026-11-03", fechaFin: "2026-11-14", sedeId: "s1" };
+const body = { cedula: "1020304050", tipo: "Vacaciones", fechaInicio: "2026-11-03", fechaFin: "2026-11-14", sedeId: "s1", detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } };
 
 async function start(seed = [], files = [ADJ, FIR, HIS, SOP]) {
   const repo = createFakeRepo(seed);
@@ -224,7 +224,7 @@ test("default composition root mounts /api/novedades behind authentication (no n
 });
 
 // ---- subtypes, ARL files and uploads --------------------------------------------------------
-const arlBody = { ...body, tipo: "Incapacidades", subtipo: "ARL", observacion: "Accidente de trabajo", adjuntoPath: ADJ, firmaPath: FIR, historiaPath: HIS };
+const arlBody = { ...body, tipo: "Incapacidades", subtipo: "ARL", observacion: "Accidente de trabajo", adjuntoPath: ADJ, firmaPath: FIR, historiaPath: HIS, detalles: {} };
 const upBody = { kind: "adjunto", fileName: "incapacidad.pdf", contentType: "application/pdf", size: 2048, sedeId: "s1" };
 
 test("create ARL: 201 with responsable from the session, file flags and no paths in the response", () =>
@@ -266,12 +266,12 @@ test("create: Estudio and Día de la Familia are rejected; Permisos académicos 
     assert.equal((await call("POST", "/", "t-planner", { ...body, tipo: "Día de la Familia" })).status, 400);
     const acad = { modo: "libre", dias: [{ fecha: "2026-11-03" }, { fecha: "2026-11-14" }], detalle: "Examen final" };
     assert.equal((await call("POST", "/", "t-planner", { ...body, tipo: "Permisos académicos", detalles: acad })).status, 201);
-    assert.equal((await call("POST", "/", "t-planner", { ...body, tipo: "Licencias" })).status, 400);
+    assert.equal((await call("POST", "/", "t-planner", { ...body, tipo: "Licencias", detalles: {} })).status, 400);
     const ok = await call("POST", "/", "t-planner", { ...body, tipo: "Licencias", subtipo: "Remunerada", detalles: { dias: 3, motivo: "Calamidad" } });
     assert.equal(ok.status, 201);
     assert.equal(ok.json.data.subtipo, "Remunerada");
     assert.deepEqual(ok.json.data.detalles, { dias: 3, motivo: "Calamidad" });
-    const eg = { ...body, tipo: "Incapacidades", subtipo: "Enfermedad general", observacion: "Reposo", adjuntoPath: ADJ, detalles: { duracion: "Menor o igual a 3 días" } };
+    const eg = { ...body, tipo: "Incapacidades", subtipo: "Enfermedad general", observacion: "Reposo", adjuntoPath: ADJ, fechaFin: "2026-11-05", detalles: { duracion: "Menor o igual a 3 días" } };
     assert.equal((await call("POST", "/", "t-planner", eg)).status, 201);
   }));
 
@@ -388,7 +388,7 @@ test("GET /:id/files/historia|soporte: signed URLs for readers; 404 when the nov
 
 test("create Permisos: detalles errors come back as body.detalles.<field> in Spanish; unknown keys and non-objects are rejected", () =>
   withApp([], async ({ call, repo }) => {
-    const permisos = { ...body, tipo: "Permisos" };
+    const permisos = { ...body, tipo: "Permisos", detalles: {} };
     const missing = await call("POST", "/", "t-planner", permisos);
     assert.equal(missing.status, 400);
     assert.deepEqual(missing.json.details, [{ path: "body.detalles.motivo", message: "El motivo del permiso es obligatorio" }]);

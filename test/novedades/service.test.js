@@ -10,7 +10,7 @@ const planner = Object.freeze({ role: "planner", sedeIds: ["s1"] });
 const plannerAll = Object.freeze({ role: "planner", sedeIds: null });
 const viewer = Object.freeze({ role: "viewer", sedeIds: ["s1"] });
 const user = { id: "user-1" };
-const input = { cedula: "1020304050", tipo: "Vacaciones", fechaInicio: "2026-11-03", fechaFin: "2026-11-14", observacion: null, sedeId: "s1" };
+const input = { cedula: "1020304050", tipo: "Vacaciones", fechaInicio: "2026-11-03", fechaFin: "2026-11-14", observacion: null, sedeId: "s1", detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } };
 
 const row = (o) => ({ cedula: "1020304050", tipo: "Permisos", fecha_inicio: "2026-11-10", fecha_fin: "2026-11-15", sede_id: "s1", created_by: "x", ...o });
 const make = (seed) => {
