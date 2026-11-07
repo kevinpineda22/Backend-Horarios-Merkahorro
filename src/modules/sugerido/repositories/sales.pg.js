@@ -21,7 +21,7 @@ const HISTORY_SQL = `
 const AS_OF_SQL = `SELECT max(fecha)::text AS data_as_of FROM ${TABLE} WHERE bodega = ANY($1::text[]) AND fecha <= $2::date`;
 
 // Physical registers per bodega: distinct `caja` over the 60 days ending at the bodega's latest date
-// (bounded by $2 when given, like AS_OF_SQL). 'SIN_CAJA' and blanks are "unknown register", not a register.
+// (bounded by $2 when given, like AS_OF_SQL). 'SIN_CAJA' and blanks are "unknown register", not a register. '1' and '01' are the same register (leading zeros stripped).
 // A sede with several bodegas sums its bodegas' counts, since each has its own physical registers.
 export const REGISTERS_WINDOW_DAYS = 60;
 const REGISTERS_SQL = `
@@ -30,7 +30,7 @@ const REGISTERS_SQL = `
       FROM ${TABLE}
      WHERE bodega = ANY($1::text[]) AND ($2::date IS NULL OR fecha <= $2::date)
      GROUP BY bodega)
-  SELECT t.bodega::text AS bodega, count(DISTINCT t.caja) AS registers
+  SELECT t.bodega::text AS bodega, count(DISTINCT ltrim(btrim(t.caja::text), '0')) AS registers
     FROM ${TABLE} t
     JOIN ref r ON r.bodega = t.bodega
    WHERE t.bodega = ANY($1::text[])

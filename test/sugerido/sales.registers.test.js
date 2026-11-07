@@ -38,7 +38,8 @@ test("one parameterized READ ONLY round trip over a 60-day window ending at each
   assert.match(q.sql, /\$2::date IS NULL OR fecha <= \$2::date/);
   assert.match(q.sql, /fecha > r\.d - 60/);
   assert.match(q.sql, /fecha <= r\.d/);
-  assert.match(q.sql, /count\(DISTINCT t\.caja\)/);
+  // '1' and '01' must be the same register: trimmed and stripped of leading zeros inside the DISTINCT.
+  assert.match(q.sql, /count\(DISTINCT ltrim\(btrim\(t\.caja::text\), '0'\)\)/);
   assert.match(q.sql, /SIN_CAJA/);
   assert.match(q.sql, /btrim/);
   assert.match(q.sql, /GROUP BY t\.bodega/);
