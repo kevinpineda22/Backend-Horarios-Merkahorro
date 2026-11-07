@@ -20,6 +20,24 @@ const HISTORY_SQL = `
 // Bounded by the loaded range so recomputing a past week sees that week's data horizon.
 const AS_OF_SQL = `SELECT max(fecha)::text AS data_as_of FROM ${TABLE} WHERE bodega = ANY($1::text[]) AND fecha <= $2::date`;
 
+// Physical registers per bodega: distinct `caja` over the 60 days ending at the bodega's latest date
+// (bounded by $2 when given, like AS_OF_SQL). 'SIN_CAJA' and blanks are "unknown register", not a register.
+// A sede with several bodegas sums its bodegas' counts, since each has its own physical registers.
+export const REGISTERS_WINDOW_DAYS = 60;
+const REGISTERS_SQL = `
+  WITH ref AS (
+    SELECT bodega, max(fecha) AS d
+      FROM ${TABLE}
+     WHERE bodega = ANY($1::text[]) AND ($2::date IS NULL OR fecha <= $2::date)
+     GROUP BY bodega)
+  SELECT t.bodega::text AS bodega, count(DISTINCT t.caja) AS registers
+    FROM ${TABLE} t
+    JOIN ref r ON r.bodega = t.bodega
+   WHERE t.bodega = ANY($1::text[])
+     AND t.fecha > r.d - ${REGISTERS_WINDOW_DAYS} AND t.fecha <= r.d
+     AND t.caja IS NOT NULL AND btrim(t.caja::text) <> '' AND upper(btrim(t.caja::text)) <> 'SIN_CAJA'
+   GROUP BY t.bodega`;
+
 const invalid = () => createHttpError(502, "Los datos de ventas recibidos no son válidos.", "SALES_DATA_INVALID");
 
 /** Postgres numerics arrive as strings; null/blank/NaN must fail instead of becoming 0. */
@@ -57,9 +75,47 @@ async function readHistory(pool, { bodegas, desde, hasta }) {
   }
 }
 
+/** One READ ONLY statement; the client is destroyed on failure. */
+async function readRegisters(pool, { bodegas, hasta }) {
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN READ ONLY");
+    const res = await client.query(REGISTERS_SQL, [bodegas, hasta]);
+    await client.query("COMMIT");
+    client.release();
+    return res.rows;
+  } catch (err) {
+    if (client) {
+      await client.query("ROLLBACK").catch(() => {});
+      client.release(err);
+    }
+    throw mapDbError(err);
+  }
+}
+
 /** Sales history adapter over the analytics Postgres (read-only, parameterized SQL only). */
 export function createSalesRepo(pool) {
   return {
+    /**
+     * Physical registers per bodega: { [bodega]: count }. A bodega with no usable `caja` is absent.
+     * hasta (optional) bounds the reference date like the history load does.
+     */
+    async loadRegisterCounts({ bodegas, hasta = null }) {
+      if (!Array.isArray(bodegas) || bodegas.length === 0 || !bodegas.every((b) => typeof b === "string" && b)) {
+        throw new Error("bodegas must be a non-empty array of strings");
+      }
+      if (hasta !== null) toEpochDay(hasta);
+      const rows = await readRegisters(pool, { bodegas, hasta });
+      const out = {};
+      for (const r of rows) {
+        const n = toNumber(r.registers);
+        if (!Number.isInteger(n) || n < 0 || typeof r.bodega !== "string") throw invalid();
+        out[r.bodega] = n;
+      }
+      return out;
+    },
+
     /**
      * Shapes consumed by the domain:
      *   slots: { [fecha]: { [HH:MM]: { docs, venta } } }   (docs = facturas + devoluciones)
