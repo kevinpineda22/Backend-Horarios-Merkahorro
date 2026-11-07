@@ -102,3 +102,16 @@ export const settingsPatchSchema = z
   })
   .partial()
   .refine((patch) => Object.values(patch).some((v) => v !== undefined), { message: "Debes enviar al menos un parÃ¡metro" });
+
+// ---------------------------------------------------------------------------
+// Registers override (PUT /sedes/:sedeId/registers). 1..50 physical registers, or null to clear the override
+// and fall back to the count derived from sales. The key is mandatory: an empty body is never an implicit clear.
+// ---------------------------------------------------------------------------
+export const MAX_REGISTERS = 50;
+
+export const registersBodySchema = z.object({
+  override: z.union(
+    [z.number().int().min(1).max(MAX_REGISTERS), z.null()],
+    { errorMap: () => ({ message: `El número de puestos debe ser un entero entre 1 y ${MAX_REGISTERS}, o null para quitar el ajuste` }) },
+  ),
+});

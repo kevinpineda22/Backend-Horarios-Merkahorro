@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createOverridesBodySchema, weekParamsSchema } from "../../src/modules/sugerido/sugerido.schemas.js";
+import { createOverridesBodySchema, registersBodySchema, sedeParamsSchema, weekParamsSchema } from "../../src/modules/sugerido/sugerido.schemas.js";
 
 const WEEK = "2026-11-02"; // Monday
 const item = (o = {}) => ({ fecha: "2026-11-02", franja: "08:00", value: 3, ...o });
@@ -117,4 +117,27 @@ test("overrides body: franja minutes :05/:14/:50/:59 are rejected at the day edg
   for (const franja of ["00:00", "00:15", "00:30", "00:45", "23:00", "23:15", "23:30", "23:45"]) {
     assert.equal(parseBody([item({ franja })]).success, true, franja);
   }
+});
+
+test("registers body: an integer 1..50 or null (clear) is accepted", () => {
+  for (const override of [1, 10, 50, null]) {
+    const r = registersBodySchema.safeParse({ override });
+    assert.equal(r.success, true, String(override));
+    assert.equal(r.data.override, override);
+  }
+});
+
+test("registers body: 0, 51, negatives, decimals, strings, NaN and a missing key are rejected in Spanish", () => {
+  for (const body of [{ override: 0 }, { override: 51 }, { override: -1 }, { override: 2.5 }, { override: "10" }, { override: Number.NaN }, { override: true }, {}, null, []]) {
+    const r = registersBodySchema.safeParse(body);
+    assert.equal(r.success, false, JSON.stringify(body));
+  }
+  assert.match(registersBodySchema.safeParse({ override: 51 }).error.issues[0].message, /50/);
+  assert.match(registersBodySchema.safeParse({}).error.issues[0].message, /null/);
+});
+
+test("registers body: unknown keys are stripped; sedeParams requires a sede", () => {
+  assert.deepEqual(registersBodySchema.parse({ override: 4, extra: 1 }), { override: 4 });
+  assert.equal(sedeParamsSchema.safeParse({ sedeId: " s1 " }).data.sedeId, "s1");
+  assert.equal(sedeParamsSchema.safeParse({ sedeId: "" }).success, false);
 });
