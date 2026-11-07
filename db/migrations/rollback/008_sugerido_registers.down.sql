@@ -6,8 +6,8 @@
 do $$
 begin
   if exists (select 1 from information_schema.columns
-              where table_name = 'sugerido_sedes' and column_name = 'registers_override')
-     and not exists (select 1 from information_schema.tables where table_name = 'sugerido_sedes_registers_backup_008') then
+              where table_schema = 'public' and table_name = 'sugerido_sedes' and column_name = 'registers_override')
+     and not exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'sugerido_sedes_registers_backup_008') then
     execute 'create table sugerido_sedes_registers_backup_008 as
              select sede_id, registers_override from sugerido_sedes where registers_override is not null';
     execute 'alter table sugerido_sedes_registers_backup_008 enable row level security'; -- no policies: service role only

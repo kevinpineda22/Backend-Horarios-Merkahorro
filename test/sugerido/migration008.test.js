@@ -49,3 +49,15 @@ test("verify runs in one transaction that ends in ROLLBACK and checks the range"
   assert.ok(v.includes("registers_override = 0") && v.includes("registers_override = 51"));
   assert.ok(v.includes("all checks passed"));
 });
+
+test("verify does not assume the table has no overrides (admins may have set some)", () => {
+  assert.ok(!/registers_override is not null/.test(flat(verify)), "no data assertion on existing overrides");
+});
+
+test("information_schema lookups are scoped to the public schema", () => {
+  for (const s of [flat(down), flat(verify)]) {
+    const lookups = s.match(/from information_schema\.\w+ where [^)]*\)/g) ?? [];
+    assert.ok(lookups.length > 0);
+    for (const l of lookups) assert.ok(l.includes("table_schema = 'public'"), l);
+  }
+});

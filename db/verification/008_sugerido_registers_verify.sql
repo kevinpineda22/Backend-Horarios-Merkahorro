@@ -13,7 +13,7 @@ do $$
 begin
   -- 1. Structure: nullable int column, RLS on, closed to anon/authenticated.
   assert (select data_type = 'integer' and is_nullable = 'YES' from information_schema.columns
-           where table_name = 'sugerido_sedes' and column_name = 'registers_override'),
+           where table_schema = 'public' and table_name = 'sugerido_sedes' and column_name = 'registers_override'),
     'registers_override is a nullable integer';
   assert exists (select 1 from pg_constraint
                   where conrelid = 'sugerido_sedes'::regclass and conname = 'sugerido_sedes_registers_override_chk'),
@@ -22,10 +22,7 @@ begin
   assert not has_table_privilege('anon', 'sugerido_sedes', 'select') and not has_table_privilege('authenticated', 'sugerido_sedes', 'select'),
     'anon/authenticated have no privileges on sugerido_sedes';
 
-  -- 2. Existing rows are untouched (no override).
-  assert not exists (select 1 from sugerido_sedes where registers_override is not null), 'no override before the API sets one';
-
-  -- 3. Range 1..50 or NULL.
+  -- 2. Range 1..50 or NULL.
   insert into sugerido_sedes (sede_id, nombre, bodegas) values ('zz-verify-008', 'Verify 008', array['ZZ008']);
   update sugerido_sedes set registers_override = 1 where sede_id = 'zz-verify-008';
   update sugerido_sedes set registers_override = 50 where sede_id = 'zz-verify-008';
