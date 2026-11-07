@@ -42,6 +42,7 @@ test("PUT registers: invalid bodies are 400 VALIDATION_ERROR and nothing is writ
       const r = await call("PUT", path(), "t-admin", body);
       assert.deepEqual([r.status, r.json.code], [400, "VALIDATION_ERROR"], JSON.stringify(body));
       assert.equal(r.json.details[0].path, "body.override");
+      assert.ok(r.json.details[0].message.includes("número"), "Spanish accents survive (UTF-8 source)");
     }
     assert.equal(repo.calls.setRegistersOverride.length, 0);
   }));

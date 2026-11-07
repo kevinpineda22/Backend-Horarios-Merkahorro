@@ -46,7 +46,7 @@ export function fakeSuggestions(sedes = [
     async setRegistersOverride(sedeId, override) {
       calls.setRegistersOverride.push({ sedeId, override });
       const s = sedes.find((x) => x.sedeId === sedeId && x.activo);
-      if (!s) throw createHttpError(404, "La sede no est· configurada para el sugerido.", "SEDE_NOT_MAPPED");
+      if (!s) throw createHttpError(404, "La sede no est√° configurada para el sugerido.", "SEDE_NOT_MAPPED");
       s.registersOverride = override;
       return { ...s };
     },

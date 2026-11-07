@@ -112,6 +112,6 @@ export const MAX_REGISTERS = 50;
 export const registersBodySchema = z.object({
   override: z.union(
     [z.number().int().min(1).max(MAX_REGISTERS), z.null()],
-    { errorMap: () => ({ message: `El n˙mero de puestos debe ser un entero entre 1 y ${MAX_REGISTERS}, o null para quitar el ajuste` }) },
+    { errorMap: () => ({ message: `El n√∫mero de puestos debe ser un entero entre 1 y ${MAX_REGISTERS}, o null para quitar el ajuste` }) },
   ),
 });
