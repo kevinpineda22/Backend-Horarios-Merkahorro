@@ -2,7 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "../../shared/http/asyncHandler.js";
 import { validate } from "../../shared/http/validate.js";
 import { loadAccess, requireRole, requireSede } from "../../shared/http/authorize.js";
-import { createOverridesBodySchema, settingsPatchSchema, weekParamsSchema } from "./sugerido.schemas.js";
+import { createOverridesBodySchema, registersBodySchema, sedeParamsSchema, settingsPatchSchema, weekParamsSchema } from "./sugerido.schemas.js";
 
 /**
  * /api/sugerido. Dependencies are injected so tests run with fakes:
@@ -35,6 +35,15 @@ export function createSugeridoRouter({ authenticate, accessRepo, service }) {
     adminOnly,
     validate({ body: settingsPatchSchema }),
     asyncHandler(async (req, res) => res.json({ data: await service.updateSettings(req.user, req.body) })),
+  );
+
+  // Manual count of physical registers (puestos de pago) of a sede: admin-only like the settings.
+  // override null clears it and the count derived from sales applies again.
+  router.put(
+    "/sedes/:sedeId/registers",
+    adminOnly,
+    validate({ params: sedeParamsSchema, body: registersBodySchema }),
+    asyncHandler(async (req, res) => res.json({ data: await service.setRegistersOverride(req.params.sedeId, req.body.override) })),
   );
 
   router.get(
