@@ -31,6 +31,7 @@ declare
   v_his text := '2031/01/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-historia.pdf';
   v_sop text := '2031/01/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-soporte.jpg';
   v_id uuid;
+  v_c text;
 begin
   -- 1. Structure: columns, default, RLS, no privileges for anon/authenticated.
   assert (select count(*) from information_schema.columns
@@ -58,18 +59,24 @@ begin
   begin
     perform pg_temp.nov('Permisos', p_detalles => '[]'::jsonb);
     raise exception 'expected check_violation for an array detalles';
-  exception when check_violation then null;
+  exception when check_violation then
+    get stacked diagnostics v_c = constraint_name;
+    assert v_c = 'novedades_detalles_chk', 'expected novedades_detalles_chk, got ' || coalesce(v_c, '<null>');
   end;
   begin
     perform pg_temp.nov('Permisos', p_detalles => '"texto"'::jsonb);
     raise exception 'expected check_violation for a scalar detalles';
-  exception when check_violation then null;
+  exception when check_violation then
+    get stacked diagnostics v_c = constraint_name;
+    assert v_c = 'novedades_detalles_chk', 'expected novedades_detalles_chk, got ' || coalesce(v_c, '<null>');
   end;
   begin
     insert into novedades (cedula, tipo, fecha_inicio, fecha_fin, detalles, created_by)
     values ('99999999', 'Permisos', date '2031-01-06', date '2031-01-07', null, '00000000-0000-4000-8000-000000000001');
     raise exception 'expected not_null_violation for a null detalles';
-  exception when not_null_violation then null;
+  exception when not_null_violation then
+    get stacked diagnostics v_c = column_name;
+    assert v_c = 'detalles', 'expected the detalles column, got ' || coalesce(v_c, '<null>');
   end;
 
   -- 3. Relaxed ARL check: an Enfermedad general incapacidad may carry adjunto + historia, but never a firma.
@@ -77,7 +84,9 @@ begin
   begin
     perform pg_temp.nov('Incapacidades', 'Enfermedad general', v_adj, v_fir);
     raise exception 'expected check_violation for Enfermedad general with a firma';
-  exception when check_violation then null;
+  exception when check_violation then
+    get stacked diagnostics v_c = constraint_name;
+    assert v_c = 'novedades_arl_chk', 'expected novedades_arl_chk, got ' || coalesce(v_c, '<null>');
   end;
   v_id := pg_temp.nov('Incapacidades', 'ARL', '2031/01/aaaaaaaa-5d4a-4b6e-9a1c-0123456789ab-adjunto.pdf',
                       '2031/01/aaaaaaaa-5d4a-4b6e-9a1c-0123456789ab-firma.png', v_resp,
@@ -86,38 +95,50 @@ begin
   begin
     perform pg_temp.nov('Incapacidades', 'ARL', null, '2031/01/bbbbbbbb-5d4a-4b6e-9a1c-0123456789ab-firma.png', v_resp);
     raise exception 'expected check_violation for ARL without adjunto';
-  exception when check_violation then null;
+  exception when check_violation then
+    get stacked diagnostics v_c = constraint_name;
+    assert v_c = 'novedades_arl_chk', 'expected novedades_arl_chk, got ' || coalesce(v_c, '<null>');
   end;
 
   -- 4. Files stay tied to their tipo.
   begin
     perform pg_temp.nov('Vacaciones', null, '2031/01/cccccccc-5d4a-4b6e-9a1c-0123456789ab-adjunto.pdf');
     raise exception 'expected check_violation for Vacaciones with an adjunto';
-  exception when check_violation then null;
+  exception when check_violation then
+    get stacked diagnostics v_c = constraint_name;
+    assert v_c = 'novedades_arl_chk', 'expected novedades_arl_chk, got ' || coalesce(v_c, '<null>');
   end;
   begin
     perform pg_temp.nov('Permisos', null, null, null, null, '2031/01/dddddddd-5d4a-4b6e-9a1c-0123456789ab-historia.pdf');
     raise exception 'expected check_violation for Permisos with a historia';
-  exception when check_violation then null;
+  exception when check_violation then
+    get stacked diagnostics v_c = constraint_name;
+    assert v_c = 'novedades_files_chk', 'expected novedades_files_chk, got ' || coalesce(v_c, '<null>');
   end;
   perform pg_temp.nov('Permisos', null, null, null, null, null, v_sop);
   perform pg_temp.nov('Permisos académicos', null, null, null, null, null, '2031/01/eeeeeeee-5d4a-4b6e-9a1c-0123456789ab-soporte.pdf');
   begin
     perform pg_temp.nov('Vacaciones', null, null, null, null, null, '2031/01/ffffffff-5d4a-4b6e-9a1c-0123456789ab-soporte.pdf');
     raise exception 'expected check_violation for Vacaciones with a soporte';
-  exception when check_violation then null;
+  exception when check_violation then
+    get stacked diagnostics v_c = constraint_name;
+    assert v_c = 'novedades_files_chk', 'expected novedades_files_chk, got ' || coalesce(v_c, '<null>');
   end;
 
   -- 5. Path format.
   begin
     perform pg_temp.nov('Incapacidades', 'Enfermedad general', v_adj, null, null, '../etc/passwd');
     raise exception 'expected check_violation for a malformed historia path';
-  exception when check_violation then null;
+  exception when check_violation then
+    get stacked diagnostics v_c = constraint_name;
+    assert v_c = 'novedades_extra_paths_chk', 'expected novedades_extra_paths_chk, got ' || coalesce(v_c, '<null>');
   end;
   begin
     perform pg_temp.nov('Permisos', null, null, null, null, null, replace(v_sop, '.jpg', '.gif'));
     raise exception 'expected check_violation for a soporte with a disallowed extension';
-  exception when check_violation then null;
+  exception when check_violation then
+    get stacked diagnostics v_c = constraint_name;
+    assert v_c = 'novedades_extra_paths_chk', 'expected novedades_extra_paths_chk, got ' || coalesce(v_c, '<null>');
   end;
 
   -- 6. One file belongs to at most one novedad: partial unique indexes exist and reject reuse.
@@ -128,12 +149,16 @@ begin
   begin
     perform pg_temp.nov('Incapacidades', 'Enfermedad general', '2031/01/99999999-5d4a-4b6e-9a1c-0123456789ab-adjunto.pdf', null, null, v_his);
     raise exception 'expected unique_violation for a reused historia_path';
-  exception when unique_violation then null;
+  exception when unique_violation then
+    get stacked diagnostics v_c = constraint_name;
+    assert v_c = 'novedades_historia_path_key', 'expected novedades_historia_path_key, got ' || coalesce(v_c, '<null>');
   end;
   begin
     perform pg_temp.nov('Permisos', null, null, null, null, null, v_sop);
     raise exception 'expected unique_violation for a reused soporte_path';
-  exception when unique_violation then null;
+  exception when unique_violation then
+    get stacked diagnostics v_c = constraint_name;
+    assert v_c = 'novedades_soporte_path_key', 'expected novedades_soporte_path_key, got ' || coalesce(v_c, '<null>');
   end;
 
   -- 7. Legacy rows (as created by 006: no detalles, no historia, ARL with only adjunto + firma) stay valid and cancellable.
@@ -142,6 +167,12 @@ begin
   assert (select detalles = '{}'::jsonb and historia_path is null from novedades where id = v_id), 'legacy ARL shape is valid';
   update novedades set anulada = true, anulada_at = now(), anulada_por = v_resp, motivo_anulacion = 'legacy' where id = v_id;
   assert (select anulada from novedades where id = v_id), 'a legacy ARL row can be cancelled';
+
+  -- A legacy Enfermedad general incapacidad (006 era: no adjunto, no detalles) is still accepted and cancellable.
+  v_id := pg_temp.nov('Incapacidades', 'Enfermedad general');
+  assert (select adjunto_path is null and detalles = '{}'::jsonb from novedades where id = v_id), 'legacy Enfermedad general without adjunto is valid';
+  update novedades set anulada = true, anulada_at = now(), anulada_por = v_resp, motivo_anulacion = 'legacy' where id = v_id;
+  assert (select anulada from novedades where id = v_id), 'a legacy Enfermedad general row can be cancelled';
 
   raise notice 'ALL CHECKS PASSED';
 end
