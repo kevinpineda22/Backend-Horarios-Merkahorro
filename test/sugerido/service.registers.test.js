@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createSugeridoService } from "../../src/modules/sugerido/sugerido.service.js";
 import { createHttpError } from "../../src/shared/http/HttpError.js";
 import { addDays } from "../../src/modules/sugerido/domain/dates.js";
-import { SLOTS_PER_OPEN_DAY, USER, WEEK, makeDeps } from "./api.helpers.js";
+import { SETTINGS, SLOTS_PER_OPEN_DAY, USER, WEEK, makeDeps } from "./api.helpers.js";
 
 // Default fixture: every slot requires 3 cashiers (see service.test.js); s1 has bodegas B1 + B2, s2 has B3.
 const setup = (opts) => {
@@ -85,7 +85,59 @@ test("getWeek reflects an override set after the run, while the run keeps its ow
   const view = await service.getWeek(USER, "s1", WEEK);
   assert.deepEqual(view.registers, { derived: 10, override: 2, effective: 2 });
   assert.equal(view.inputs.registers.effective, 10);
-  assert.equal(slotOf(view, WEEK, "08:00").suggested, 3, "the stored run is not re-capped on read");
+  const slot = slotOf(view, WEEK, "08:00");
+  assert.equal(slot.suggested, 3, "the stored suggestion is not rewritten");
+  assert.deepEqual([slot.final, slot.cappedByRegisters], [2, true], "but the final shown is clamped to the current registers");
+  assert.equal(slotOf(view, WEEK, "08:15").cappedByRegisters, true);
+});
+
+test("an override stored above the registers (before the feature, or registers lowered later) is clamped on read, not rewritten", async () => {
+  const { service, repo } = setup({ registers: {} }); // unknown at first: nothing blocks the edit
+  await service.computeRun(USER, "s1", WEEK);
+  await service.saveOverrides(USER, "s1", WEEK, [{ fecha: WEEK, franja: "08:00", value: 9 }, { fecha: WEEK, franja: "06:00", value: 7 }]);
+  await service.setRegistersOverride("s1", 4);
+
+  const view = await service.getWeek(USER, "s1", WEEK);
+  const s = slotOf(view, WEEK, "08:00");
+  assert.deepEqual([s.override, s.final, s.difference, s.cappedByRegisters], [9, 4, 1, true]);
+  const orphan = slotOf(view, WEEK, "06:00");
+  assert.deepEqual([orphan.override, orphan.final, orphan.cappedByRegisters], [7, 4, true]);
+  assert.equal("cappedByRegisters" in slotOf(view, WEEK, "08:15"), false, "untouched slots carry no flag");
+  assert.equal(repo.overrides.get(`s1|${WEEK}|08:00`).headcount, 9, "the stored override is intact");
+
+  await service.setRegistersOverride("s1", null); // lifting the cap brings the original value back
+  assert.equal(slotOf(await service.getWeek(USER, "s1", WEEK), WEEK, "08:00").final, 9);
+});
+
+test("the week returned by saveOverrides and computeRun is reconciled with the registers too", async () => {
+  const { service } = setup({ registers: { B1: 2, B2: 2 } });
+  const run = await service.computeRun(USER, "s1", WEEK);
+  assert.equal(slotOf(run, WEEK, "08:00").final, 3);
+  const after = await service.saveOverrides(USER, "s1", WEEK, [{ fecha: WEEK, franja: "08:00", value: 4 }]);
+  assert.deepEqual([slotOf(after, WEEK, "08:00").final, slotOf(after, WEEK, "08:00").cappedByRegisters], [4, undefined]);
+});
+
+const HIGH_MIN = { ...SETTINGS, minCashiers: 8 }; // every slot requires 8, the pool has 5 available
+
+test("shortfall ignores cashiers who could never sit: min(required, registers) - available", async () => {
+  const six = await setup({ settings: HIGH_MIN, registers: { B1: 3, B2: 3 } }).service.computeRun(USER, "s1", WEEK);
+  const a = slotOf(six, WEEK, "08:00");
+  assert.deepEqual([a.required, a.available, a.suggested, a.shortfall, a.status], [8, 5, 5, 1, "shortfall"]);
+
+  const four = await setup({ settings: HIGH_MIN, registers: { B1: 2, B2: 2 } }).service.computeRun(USER, "s1", WEEK);
+  const b = slotOf(four, WEEK, "08:00");
+  assert.deepEqual([b.required, b.suggested, b.shortfall, b.status], [8, 4, 0, "ok"]);
+
+  const unknown = await setup({ settings: HIGH_MIN }).service.computeRun(USER, "s1", WEEK);
+  assert.deepEqual([slotOf(unknown, WEEK, "08:00").shortfall, slotOf(unknown, WEEK, "08:00").status], [3, "shortfall"]);
+});
+
+test("stored shortfall is recomputed on read with the current registers", async () => {
+  const { service } = setup({ settings: HIGH_MIN, registers: { B1: 3, B2: 3 } });
+  await service.computeRun(USER, "s1", WEEK);
+  await service.setRegistersOverride("s1", 4);
+  const s = slotOf(await service.getWeek(USER, "s1", WEEK), WEEK, "08:00");
+  assert.deepEqual([s.required, s.shortfall, s.status], [8, 0, "ok"]);
 });
 
 test("derived registers degrade to unknown when the sales database fails on a read path", async () => {

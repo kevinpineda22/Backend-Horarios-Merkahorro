@@ -7,7 +7,7 @@ import { computeProductivity, PRODUCTIVITY_WINDOW_DAYS } from "./domain/producti
 import { assembleWeek, applyOverrides } from "./domain/merge.js";
 import { computeFreshness } from "./domain/freshness.js";
 import { isWeekInRange } from "./domain/weekRange.js";
-import { capSlots, countOverRegisters, derivedRegisters, effectiveRegisters, registersWarning } from "./domain/registers.js";
+import { capSlots, countOverRegisters, derivedRegisters, effectiveRegisters, reconcileSlots, registersWarning } from "./domain/registers.js";
 
 const METHOD = "forecast-blend-v1";
 // The derived register count changes on the scale of months, so read paths reuse it for a few minutes.
@@ -125,10 +125,14 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
     }
     const days = applyOverrides(dayMeta.map((d) => ({ ...d, slots: slotsByDay.get(d.fecha) ?? [] })), overrides).map((d) => ({
       ...d,
-      slots: [
-        ...d.slots.map(({ diff, ...slot }) => ({ ...slot, difference: diff })),
-        ...orphanOverrideSlots(d, overrides),
-      ].sort(byFranja),
+      // The stored run and overrides are untouched; only the view is aligned with the CURRENT registers.
+      slots: reconcileSlots(
+        [
+          ...d.slots.map(({ diff, ...slot }) => ({ ...slot, difference: diff })),
+          ...orphanOverrideSlots(d, overrides),
+        ].sort(byFranja),
+        registers.effective,
+      ),
     }));
 
     return {
