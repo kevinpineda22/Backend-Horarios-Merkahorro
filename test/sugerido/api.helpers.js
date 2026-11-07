@@ -34,14 +34,21 @@ export function fakeSuggestions(sedes = [
   { sedeId: "s2", nombre: "Norte", bodegas: ["B3"], activo: true },
   { sedeId: "s3", nombre: "Cerrada", bodegas: ["B4"], activo: false },
 ]) {
-  const runs = [], overrides = new Map(), calls = { saveRun: [], applyOverrides: [] };
+  const runs = [], overrides = new Map(), calls = { saveRun: [], applyOverrides: [], setRegistersOverride: [] };
   return {
     calls, runs, overrides,
-    async listSedes() { return sedes.filter((s) => s.activo); },
+    async listSedes() { return sedes.filter((s) => s.activo).map((s) => ({ registersOverride: null, ...s })); },
     async getSede(id) {
       const s = sedes.find((x) => x.sedeId === id && x.activo);
       if (!s) throw createHttpError(404, "La sede no estÃ¡ configurada para el sugerido.", "SEDE_NOT_MAPPED");
-      return s;
+      return { registersOverride: null, ...s };
+    },
+    async setRegistersOverride(sedeId, override) {
+      calls.setRegistersOverride.push({ sedeId, override });
+      const s = sedes.find((x) => x.sedeId === sedeId && x.activo);
+      if (!s) throw createHttpError(404, "La sede no está configurada para el sugerido.", "SEDE_NOT_MAPPED");
+      s.registersOverride = override;
+      return { ...s };
     },
     async saveRun(run) {
       calls.saveRun.push(structuredClone(run));
@@ -78,9 +85,9 @@ export function fakeSuggestions(sedes = [
 }
 
 /** Full dependency set with spies. `state` fields can be mutated between calls. */
-export function makeDeps({ history = buildHistory(), pool = POOL, absences = { absences: [], warnings: [] }, settings = SETTINGS, sedes, absencesPort } = {}) {
-  const state = { history, pool, absences, settings, now: new Date("2026-11-21T15:00:00Z") };
-  const calls = { sales: [], staff: [], absences: [], settings: 0, updateSettings: [] };
+export function makeDeps({ history = buildHistory(), pool = POOL, absences = { absences: [], warnings: [] }, settings = SETTINGS, sedes, absencesPort, registers = {} } = {}) {
+  const state = { history, pool, absences, settings, registers: { ...registers }, now: new Date("2026-11-21T15:00:00Z") };
+  const calls = { sales: [], registers: [], staff: [], absences: [], settings: 0, updateSettings: [] };
   const settle = (v) => (v instanceof Error ? Promise.reject(v) : Promise.resolve(v));
   const suggestionsRepo = fakeSuggestions(sedes);
   const deps = {
@@ -94,7 +101,11 @@ export function makeDeps({ history = buildHistory(), pool = POOL, absences = { a
         return { ...state.settings };
       },
     },
-    salesRepo: { async loadSlotHistory(args) { calls.sales.push(args); return settle(state.history); } },
+    // state.registers: { [bodega]: count } (an Error rejects, like a failing pool). Default: no data -> unknown.
+    salesRepo: {
+      async loadSlotHistory(args) { calls.sales.push(args); return settle(state.history); },
+      async loadRegisterCounts(args) { calls.registers.push(args); return settle(state.registers); },
+    },
     staffPort: { async getCashierPool(sedeId) { calls.staff.push(sedeId); return settle(state.pool.map ? state.pool.map((cedula) => ({ cedula })) : state.pool); } },
     absencesPort: absencesPort ?? { async getAbsences(args) { calls.absences.push(args); return settle(state.absences); } },
     now: () => state.now,
