@@ -38,6 +38,10 @@ test("one parameterized READ ONLY round trip over a 60-day window ending at each
   assert.match(q.sql, /\$2::date IS NULL OR fecha <= \$2::date/);
   assert.match(q.sql, /fecha > r\.d - 60/);
   assert.match(q.sql, /fecha <= r\.d/);
+  // One reference date for all bodegas: an old bodega code with no recent sales (Villahermosa's PV002)
+  // must count 0, not the registers it had back then.
+  assert.match(q.sql, /WITH ref AS \(\s*SELECT max\(fecha\) AS d\s/);
+  assert.ok(!/JOIN ref/.test(q.sql), "the reference date is not per bodega");
   // '1' and '01' must be the same register: trimmed and stripped of leading zeros inside the DISTINCT.
   assert.match(q.sql, /count\(DISTINCT ltrim\(btrim\(t\.caja::text\), '0'\)\)/);
   assert.match(q.sql, /SIN_CAJA/);

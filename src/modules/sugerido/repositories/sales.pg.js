@@ -20,19 +20,20 @@ const HISTORY_SQL = `
 // Bounded by the loaded range so recomputing a past week sees that week's data horizon.
 const AS_OF_SQL = `SELECT max(fecha)::text AS data_as_of FROM ${TABLE} WHERE bodega = ANY($1::text[]) AND fecha <= $2::date`;
 
-// Physical registers per bodega: distinct `caja` over the 60 days ending at the bodega's latest date
-// (bounded by $2 when given, like AS_OF_SQL). 'SIN_CAJA' and blanks are "unknown register", not a register. '1' and '01' are the same register (leading zeros stripped).
-// A sede with several bodegas sums its bodegas' counts, since each has its own physical registers.
+// Physical registers per bodega: distinct `caja` over the 60 days ending at ONE reference date, the
+// latest date among the requested bodegas (bounded by $2 when given, like AS_OF_SQL). A single date,
+// not one per bodega: an old bodega code of the same store (Villahermosa's PV002, replaced by 00201)
+// has no recent sales and must count 0, not its registers from back then. Same rule as Analítica de
+// Cajas. 'SIN_CAJA' and blanks are "unknown register", not a register. '1' and '01' are the same
+// register (leading zeros stripped). A sede with several active bodegas sums their counts.
 export const REGISTERS_WINDOW_DAYS = 60;
 const REGISTERS_SQL = `
   WITH ref AS (
-    SELECT bodega, max(fecha) AS d
+    SELECT max(fecha) AS d
       FROM ${TABLE}
-     WHERE bodega = ANY($1::text[]) AND ($2::date IS NULL OR fecha <= $2::date)
-     GROUP BY bodega)
+     WHERE bodega = ANY($1::text[]) AND ($2::date IS NULL OR fecha <= $2::date))
   SELECT t.bodega::text AS bodega, count(DISTINCT ltrim(btrim(t.caja::text), '0')) AS registers
-    FROM ${TABLE} t
-    JOIN ref r ON r.bodega = t.bodega
+    FROM ${TABLE} t, ref r
    WHERE t.bodega = ANY($1::text[])
      AND t.fecha > r.d - ${REGISTERS_WINDOW_DAYS} AND t.fecha <= r.d
      AND t.caja IS NOT NULL AND btrim(t.caja::text) <> '' AND upper(btrim(t.caja::text)) <> 'SIN_CAJA'
