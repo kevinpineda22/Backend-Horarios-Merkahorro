@@ -109,7 +109,7 @@ test("no sales history: zeros, noHistory per day, nothing persisted, stale notic
   assert.ok(view.freshness.notice.length > 0);
 
   const week = await service.getWeek(USER, "s1", WEEK);
-  assert.deepEqual(week, { sedeId: "s1", weekStart: WEEK, run: null, freshness: null, flags: null, warnings: [], days: [] });
+  assert.deepEqual(week, { sedeId: "s1", weekStart: WEEK, run: null, freshness: null, flags: null, warnings: [], registers: { derived: null, override: null, effective: null }, days: [] });
 });
 
 test("no productivity: required and suggested are null, status unknown, flag set", async () => {

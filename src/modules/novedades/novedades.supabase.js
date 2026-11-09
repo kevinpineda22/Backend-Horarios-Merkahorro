@@ -2,11 +2,16 @@ import { createHttpError } from "../../shared/http/HttpError.js";
 
 const TABLE = "novedades";
 const FK_VIOLATION = "23503";
+const UNIQUE_VIOLATION = "23505";
 
 /** Throws the query error; a foreign-key violation can only come from `sede_id`. */
 function unwrap({ data, error }) {
   if (!error) return data;
   if (error.code === FK_VIOLATION) throw createHttpError(404, "La sede indicada no existe.", "SEDE_NOT_FOUND");
+  // One storage object can belong to a single novedad (partial unique indexes from 006 and 007).
+  if (error.code === UNIQUE_VIOLATION && /novedades_(adjunto|firma|historia|soporte)_path_key/.test(error.message ?? "")) {
+    throw createHttpError(409, "Este archivo ya está adjunto a otra novedad.", "NOVEDAD_FILE_IN_USE");
+  }
   throw error;
 }
 

@@ -19,8 +19,8 @@ const row = (tipo, inicio, fin, extra = {}) => ({
   ...extra,
 });
 
-test("ABSENCE_TYPES lists the 6 novedad types", () => {
-  assert.deepEqual([...ABSENCE_TYPES], ["Incapacidades", "Licencias", "Vacaciones", "Permisos", "Estudio", "Día de la Familia"]);
+test("ABSENCE_TYPES lists the 6 stored novedad types", () => {
+  assert.deepEqual([...ABSENCE_TYPES], ["Incapacidades", "Licencias", "Vacaciones", "Permisos", "Permisos académicos", "Día de la Familia"]);
 });
 
 test("parseDateOnly accepts YYYY-MM-DD and ISO timestamps, rejects junk", () => {
@@ -71,8 +71,8 @@ test("anulada must be exactly true to exclude (false/undefined/null stay active)
 });
 
 test("types outside the blocking set or the known types are ignored without warnings", () => {
-  const without = ALL.filter((t) => t !== "Estudio");
-  const r = normalizeAbsences([row("Estudio", "2026-10-26", "2026-10-27"), row("Otra", "nope", "nope"), null], [...without, "Otra"]);
+  const without = ALL.filter((t) => t !== "Permisos académicos");
+  const r = normalizeAbsences([row("Permisos académicos", "2026-10-26", "2026-10-27"), row("Otra", "nope", "nope"), null], [...without, "Otra"]);
   assert.deepEqual(r, { absences: [], warnings: [] });
 });
 

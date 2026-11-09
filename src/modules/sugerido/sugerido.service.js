@@ -7,8 +7,13 @@ import { computeProductivity, PRODUCTIVITY_WINDOW_DAYS } from "./domain/producti
 import { assembleWeek, applyOverrides } from "./domain/merge.js";
 import { computeFreshness } from "./domain/freshness.js";
 import { isWeekInRange } from "./domain/weekRange.js";
+import { capSlots, countOverRegisters, derivedRegisters, effectiveRegisters, reconcileSlots, registersWarning } from "./domain/registers.js";
 
 const METHOD = "forecast-blend-v1";
+// The derived register count changes on the scale of months, so read paths reuse it for a few minutes.
+const REGISTERS_CACHE_TTL_MS = 10 * 60 * 1000;
+// After a failed load the read paths answer "unknown" without touching the database again for this long.
+const REGISTERS_RETRY_AFTER_MS = 60 * 1000;
 // Sales history needed before the target week: the longest look-back any domain module walks.
 export const HISTORY_LOOKBACK_DAYS = Math.max(
   HOLIDAY_LOOKBACK_DAYS,
@@ -44,7 +49,9 @@ const orphanOverrideSlots = (day, overrides) => {
 // 'HH:MM' zero-padded strings order correctly with a plain comparison (no locale involved).
 const byFranja = (a, b) => (a.franja < b.franja ? -1 : a.franja > b.franja ? 1 : 0);
 
-const emptyWeek = (sedeId, weekStart) => ({ sedeId, weekStart, run: null, freshness: null, flags: null, warnings: [], days: [] });
+const emptyWeek = (sedeId, weekStart, registers) => ({ sedeId, weekStart, run: null, freshness: null, flags: null, warnings: [], registers, days: [] });
+
+const toRegisters = (derived, override) => ({ derived, override: override ?? null, effective: effectiveRegisters({ derived, override }) });
 
 /**
  * Sugerido use cases. Everything external is injected (repos, ports, clock), so the service is
@@ -52,8 +59,61 @@ const emptyWeek = (sedeId, weekStart) => ({ sedeId, weekStart, run: null, freshn
  * resolves the sede and applies business rules.
  */
 export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo, staffPort, absencesPort, now = () => new Date() }) {
-  /** One run -> the week view. Freshness is derived from the clock here, never read from storage. */
-  function composeWeek(sedeId, weekStart, run, overrides) {
+  // bodega -> { count, at }. Only the read paths use it; a run always asks the database.
+  const registersCache = new Map();
+  const registersFailedAt = new Map(); // bodega -> ms of the last failed load (negative cache)
+  const registersInFlight = new Map(); // bodega -> promise of the load that is covering it
+
+  /** Loads `bodegas` in one query. Never rejects: a failure is remembered and the bodegas stay unknown / stale. */
+  async function loadRegisters(bodegas, at) {
+    await null; // always yield once, so the caller registers the in-flight entry before `finally` clears it
+    try {
+      const counts = await salesRepo.loadRegisterCounts({ bodegas });
+      for (const b of bodegas) {
+        registersCache.set(b, { count: counts[b] ?? 0, at });
+        registersFailedAt.delete(b);
+      }
+    } catch {
+      for (const b of bodegas) registersFailedAt.set(b, at);
+    } finally {
+      for (const b of bodegas) registersInFlight.delete(b);
+    }
+  }
+
+  /**
+   * Current derived register count per bodega, from the cache or one query for the bodegas still missing.
+   * A failing source degrades to "unknown" (stale cache if any) and is not retried for REGISTERS_RETRY_AFTER_MS:
+   * displaying a sede or validating an edit must not depend on, nor hammer, the analytics database.
+   * Concurrent callers share the load that is already in flight for a bodega.
+   */
+  async function derivedByBodega(bodegas) {
+    const at = now().getTime();
+    const wanted = [...new Set(bodegas)].filter((b) => {
+      const cached = registersCache.get(b);
+      const stale = !cached || at - cached.at >= REGISTERS_CACHE_TTL_MS;
+      const failedAt = registersFailedAt.get(b);
+      return stale && !(failedAt !== undefined && at - failedAt < REGISTERS_RETRY_AFTER_MS);
+    });
+    const pending = new Set(wanted.filter((b) => registersInFlight.has(b)).map((b) => registersInFlight.get(b)));
+    const fresh = wanted.filter((b) => !registersInFlight.has(b));
+    if (fresh.length > 0) {
+      const load = loadRegisters(fresh, at);
+      for (const b of fresh) registersInFlight.set(b, load);
+      pending.add(load);
+    }
+    await Promise.all(pending);
+    return Object.fromEntries(bodegas.map((b) => [b, registersCache.get(b)?.count ?? 0]));
+  }
+
+  async function currentRegisters(sede) {
+    return toRegisters(derivedRegisters(sede.bodegas, await derivedByBodega(sede.bodegas)), sede.registersOverride);
+  }
+
+  /**
+   * One run -> the week view. Freshness is derived from the clock here, never read from storage.
+   * `registers` is the CURRENT state of the sede; `inputs.registers` is the snapshot the run was computed with.
+   */
+  function composeWeek(sedeId, weekStart, run, overrides, registers) {
     const { days: dayMeta, capacity, ...inputs } = run.inputs;
     const slotsByDay = new Map();
     for (const s of run.slots) {
@@ -65,10 +125,14 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
     }
     const days = applyOverrides(dayMeta.map((d) => ({ ...d, slots: slotsByDay.get(d.fecha) ?? [] })), overrides).map((d) => ({
       ...d,
-      slots: [
-        ...d.slots.map(({ diff, ...slot }) => ({ ...slot, difference: diff })),
-        ...orphanOverrideSlots(d, overrides),
-      ].sort(byFranja),
+      // The stored run and overrides are untouched; only the view is aligned with the CURRENT registers.
+      slots: reconcileSlots(
+        [
+          ...d.slots.map(({ diff, ...slot }) => ({ ...slot, difference: diff })),
+          ...orphanOverrideSlots(d, overrides),
+        ].sort(byFranja),
+        registers.effective,
+      ),
     }));
 
     return {
@@ -79,6 +143,7 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
       freshness: computeFreshness({ dataAsOf: run.dataAsOf, today: bogotaToday(now()), staleAfterDays: run.settings.staleAfterDays }),
       flags: run.flags,
       warnings: run.warnings,
+      registers,
       inputs,
       capacity,
       days,
@@ -93,16 +158,26 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
   const loadOverrides = (sedeId, weekStart) =>
     suggestionsRepo.getOverrides(sedeId, { desde: weekStart, hasta: addDays(weekStart, 6) });
 
-  async function readWeek(sedeId, weekStart) {
-    const run = await suggestionsRepo.getLatestRun(sedeId, weekStart);
-    if (!run) return emptyWeek(sedeId, weekStart);
-    return composeWeek(sedeId, weekStart, run, await loadOverrides(sedeId, weekStart));
+  async function readWeek(sede, weekStart) {
+    const registers = await currentRegisters(sede);
+    const run = await suggestionsRepo.getLatestRun(sede.sedeId, weekStart);
+    if (!run) return emptyWeek(sede.sedeId, weekStart, registers);
+    return composeWeek(sede.sedeId, weekStart, run, await loadOverrides(sede.sedeId, weekStart), registers);
   }
 
   return {
     /** Active sedes the caller may see: admins and all-sedes callers get all, scoped callers their own. */
     async listSedes(access) {
-      return (await suggestionsRepo.listSedes()).filter((s) => canAccessSede(access, s.sedeId));
+      const sedes = (await suggestionsRepo.listSedes()).filter((s) => canAccessSede(access, s.sedeId));
+      const counts = sedes.length > 0 ? await derivedByBodega(sedes.flatMap((s) => s.bodegas)) : {};
+      return sedes.map(({ registersOverride, ...sede }) => ({ ...sede, registers: toRegisters(derivedRegisters(sede.bodegas, counts), registersOverride) }));
+    },
+
+    /** Admin sets (1..50) or clears (null) the manual register count. Only runs computed afterwards use it. */
+    async setRegistersOverride(sedeId, override) {
+      await suggestionsRepo.getSede(sedeId); // unmapped / inactive -> 404 before any write
+      const sede = await suggestionsRepo.setRegistersOverride(sedeId, override);
+      return currentRegisters(sede);
     },
 
     /** Global tunable parameters (admin-only at the route). */
@@ -122,8 +197,10 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
       const snapshot = snapshotOf(settings);
 
       // A failing source rejects the whole run: an unavailable pool is never an empty pool.
-      const [history, pool, absenceResult] = await Promise.all([
-        salesRepo.loadSlotHistory({ bodegas: sede.bodegas, desde: addDays(weekStart, -HISTORY_LOOKBACK_DAYS), hasta: addDays(weekStart, 6) }),
+      const hasta = addDays(weekStart, 6);
+      const [history, registerCounts, pool, absenceResult] = await Promise.all([
+        salesRepo.loadSlotHistory({ bodegas: sede.bodegas, desde: addDays(weekStart, -HISTORY_LOOKBACK_DAYS), hasta }),
+        salesRepo.loadRegisterCounts({ bodegas: sede.bodegas, hasta }),
         staffPort.getCashierPool(sedeId),
         absencesPort.getAbsences({ weekStart, blockingTypes: snapshot.blockingAbsenceTypes }),
       ]);
@@ -135,12 +212,16 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
       const week = assembleWeek({ weekStart, forecast, productivity, settings: snapshot, pool, absences: absenceResult.absences });
 
       const venta = new Map(forecast.days.flatMap((d) => d.slots.map((s) => [`${d.fecha}|${s.franja}`, s.venta])));
-      const slots = week.days.flatMap((d) =>
+      const uncappedSlots = week.days.flatMap((d) =>
         d.slots.map((s) => ({
           fecha: d.fecha, franja: s.franja, forecastDocs: s.forecastDocs, forecastVenta: venta.get(`${d.fecha}|${s.franja}`) ?? 0,
           required: s.required, available: s.available, suggested: s.suggested, shortfall: s.shortfall, status: s.status,
         })),
       );
+      // Physical registers cap simultaneous cashiers: suggested (hence final) is limited, required keeps the real demand.
+      const registers = toRegisters(derivedRegisters(sede.bodegas, registerCounts), sede.registersOverride);
+      const slots = capSlots(uncappedSlots, registers.effective);
+      const capWarning = registersWarning({ registers: registers.effective, cappedSlots: countOverRegisters(uncappedSlots, registers.effective) });
       const flags = {
         noHistory: week.days.every((d) => d.noHistory),
         lowHistory: week.days.some((d) => d.lowHistory),
@@ -151,35 +232,45 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
         ...forecastInputs,
         productivity,
         poolSize: pool.length,
+        registers,
         capacity: week.capacity,
         days: week.days.map(({ slots: _slots, ...meta }) => meta),
       };
-      const run = { method: METHOD, settings: snapshot, inputs, flags, warnings: absenceResult.warnings, dataAsOf, createdBy: user.id, slots };
+      const run = { method: METHOD, settings: snapshot, inputs, flags, warnings: capWarning ? [...absenceResult.warnings, capWarning] : absenceResult.warnings, dataAsOf, createdBy: user.id, slots };
 
       // sugerido_save_run rejects a run without slots (no day had any history): answer from memory.
       if (slots.length === 0) {
-        return composeWeek(sedeId, weekStart, { ...run, id: null, version: null, createdAt: now().toISOString() }, []);
+        return composeWeek(sedeId, weekStart, { ...run, id: null, version: null, createdAt: now().toISOString() }, [], registers);
       }
       // Compose from the run THIS call saved: re-reading "latest" could return a concurrent recompute's run.
       const saved = await suggestionsRepo.saveRun({ sedeId, weekStart, ...run });
       const savedRun = await suggestionsRepo.getRunById(saved.id);
       if (!savedRun) throw new Error("Saved run could not be read back");
-      return composeWeek(sedeId, weekStart, savedRun, await loadOverrides(sedeId, weekStart));
+      return composeWeek(sedeId, weekStart, savedRun, await loadOverrides(sedeId, weekStart), registers);
     },
 
     /** Latest run + overrides, or an explicit empty state (200) when the week has no run yet. */
     async getWeek(_user, sedeId, weekStart) {
       assertWeekInRange(weekStart);
-      await suggestionsRepo.getSede(sedeId);
-      return readWeek(sedeId, weekStart);
+      return readWeek(await suggestionsRepo.getSede(sedeId), weekStart);
     },
 
     /** items: [{ fecha, franja, value }]; value null removes the override. */
     async saveOverrides(user, sedeId, weekStart, items) {
       assertWeekInRange(weekStart);
-      await suggestionsRepo.getSede(sedeId);
+      const sede = await suggestionsRepo.getSede(sedeId);
       const run = await suggestionsRepo.getLatestRun(sedeId, weekStart);
       if (!run) throw createHttpError(409, "Calcula el sugerido de la semana antes de ajustarlo.", "NO_RUN");
+      // Nobody can sit more cashiers than there are registers. Unknown registers never block.
+      const registers = await currentRegisters(sede);
+      if (registers.effective !== null) {
+        const exceeded = items.filter((i) => i.value !== null && i.value > registers.effective).map(({ fecha, franja, value }) => ({ fecha, franja, value }));
+        if (exceeded.length > 0) {
+          const err = createHttpError(422, `La sede tiene ${registers.effective} puestos de pago: no puedes programar más cajeras a la vez.`, "REGISTERS_EXCEEDED");
+          err.details = { registers: registers.effective, exceeded };
+          throw err;
+        }
+      }
       // A slot the run has no suggestion for is still accepted (see orphanOverrideSlots): it records suggestedAtEdit null.
       const suggested = new Map(run.slots.map((s) => [`${s.fecha}|${s.franja}`, s.suggested]));
       await suggestionsRepo.applyOverrides({
@@ -187,7 +278,7 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
         userId: user.id,
         items: items.map(({ fecha, franja, value }) => ({ fecha, franja, value, suggestedAtEdit: suggested.get(`${fecha}|${franja}`) ?? null })),
       });
-      return readWeek(sedeId, weekStart);
+      return readWeek(sede, weekStart);
     },
   };
 }

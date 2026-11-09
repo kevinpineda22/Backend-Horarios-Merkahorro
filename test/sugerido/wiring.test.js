@@ -24,7 +24,7 @@ const SEDE_ROW = { sede_id: "s1", nombre: "Centro", bodegas: ["B1"], activo: tru
 const SETTINGS_ROW = {
   ordinary_weekly_hours: 42, overtime_weekly_hours: 12, daily_max_hours: 10, utilization: 0.85,
   max_working_days_per_week: 6, min_cashiers: 1, stale_after_days: 1,
-  blocking_absence_types: ["Incapacidades", "Licencias", "Vacaciones", "Permisos", "Estudio", "Día de la Familia"],
+  blocking_absence_types: ["Incapacidades", "Licencias", "Vacaciones", "Permisos", "Permisos académicos", "Día de la Familia"],
   updated_by: null, updated_at: null,
 };
 
@@ -75,18 +75,18 @@ const okStaff = () => {
   return { calls, async list(...args) { calls.push(args); return { data: [], total: 0 }; } };
 };
 
-test("the pg pool is created on the first sales query, never when the module is built or the sede list is read", async () => {
+test("the pg pool is created on the first sales query (the sede list reads register counts), never when the module is built", async () => {
   let created = 0;
   const staff = okStaff();
   await withModule({ getPool: () => (created += 1, emptyPool), empleadosService: staff, sedes: [LIST, ONE, ONE] }, async (call) => {
     assert.equal(created, 0, "building the module must not touch the pool");
     assert.equal((await call("GET", "/sedes")).status, 200);
-    assert.equal(created, 0, "listing sedes must not touch the pool");
+    assert.equal(created, 1, "listing sedes reads the register counts: the pool is created lazily, on that first query");
 
     const run = await call("POST", runPath);
     assert.equal(run.status, 200); // no sales rows: zeros, nothing persisted
     assert.equal(run.json.data.flags.noHistory, true);
-    assert.equal(created, 1, "the first sales query creates the pool");
+    assert.ok(created > 1, "the run queries the pool again");
   });
 });
 

@@ -1,0 +1,98 @@
+-- 006_novedades_arl.sql: novedad subtypes (incapacidad ARL / enfermedad general, licencia remunerada / no
+-- remunerada), the real SIESA sede text, the responsible leader and the private bucket for the ARL support files.
+-- Apply manually in the Supabase SQL editor AFTER 005, then run db/verification/006_novedades_arl_verify.sql.
+-- Idempotent where practical. Only the backend (service role) touches these objects: RLS on, no policies.
+--
+-- What changes:
+--   * tipo "Estudio" is renamed "Permisos académicos" (rows, tipo CHECK, sugerido_settings.blocking_absence_types).
+--     "Día de la Familia" stays valid in the DB (history) but the API no longer creates it.
+--   * subtipo (nullable): Incapacidades -> ARL | Enfermedad general; Licencias -> Remunerada | No remunerada;
+--     any other tipo -> null. The API REQUIRES the subtipo on write; the CHECK tolerates null for Incapacidades and
+--     Licencias so rows created before this migration stay valid and can still be cancelled.
+--   * sede_nombre (nullable): raw SIESA sede text for employees whose sede is not one of the stores (sede_id null).
+--   * Incapacidad ARL: adjunto_path + firma_path (storage object paths, never URLs) and responsable_id/nombre
+--     (the logged-in user who registered it) are mandatory; any other subtipo carries none of them.
+--   * Private bucket novedades-soportes (10 MB, pdf/png/jpeg/webp). No storage policies: only the service role
+--     (the backend) reads and writes it, through signed URLs.
+--
+-- ROLLBACK: see db/migrations/rollback/006_novedades_arl.down.sql (destroys subtipo/ARL data; the bucket and its
+-- files are NOT removed by SQL, delete them from the Storage dashboard if needed).
+
+-- ---------------------------------------------------------------------------
+-- 1. Rename the tipo. The old inline CHECK (auto-named novedades_tipo_check) is found by its definition.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  c text;
+begin
+  for c in
+    select conname from pg_constraint
+     where conrelid = 'novedades'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%Estudio%'
+  loop
+    execute format('alter table novedades drop constraint %I', c);
+  end loop;
+end
+$$;
+
+alter table novedades drop constraint if exists novedades_tipo_chk;
+
+update novedades set tipo = 'Permisos académicos' where tipo = 'Estudio';
+
+alter table novedades add constraint novedades_tipo_chk check (tipo in ('Incapacidades', 'Licencias', 'Vacaciones', 'Permisos', 'Permisos académicos', 'Día de la Familia'));
+
+-- The scheduler keeps blocking the same absences: Estudio -> Permisos académicos, order kept, no duplicates.
+update sugerido_settings
+   set blocking_absence_types = (
+     select coalesce(array_agg(t order by first_pos), '{}')
+       from (
+         select case when x = 'Estudio' then 'Permisos académicos' else x end as t, min(pos) as first_pos
+           from unnest(blocking_absence_types) with ordinality as u(x, pos)
+          group by 1
+       ) s
+   )
+ where 'Estudio' = any (blocking_absence_types);
+
+alter table sugerido_settings alter column blocking_absence_types set default '{Incapacidades,Licencias,Vacaciones,Permisos,"Permisos académicos","Día de la Familia"}';
+
+-- ---------------------------------------------------------------------------
+-- 2. New columns (all nullable) and their constraints.
+-- ---------------------------------------------------------------------------
+alter table novedades add column if not exists subtipo text;
+alter table novedades add column if not exists sede_nombre text;
+alter table novedades add column if not exists responsable_id uuid;
+alter table novedades add column if not exists responsable_nombre text;
+alter table novedades add column if not exists adjunto_path text;
+alter table novedades add column if not exists firma_path text;
+
+alter table novedades drop constraint if exists novedades_subtipo_chk;
+alter table novedades add constraint novedades_subtipo_chk check (
+  (tipo = 'Incapacidades' and (subtipo is null or subtipo in ('ARL', 'Enfermedad general')))
+  or (tipo = 'Licencias' and (subtipo is null or subtipo in ('Remunerada', 'No remunerada')))
+  or (tipo not in ('Incapacidades', 'Licencias') and subtipo is null));
+
+alter table novedades drop constraint if exists novedades_sede_nombre_chk;
+alter table novedades add constraint novedades_sede_nombre_chk check (char_length(sede_nombre) between 1 and 120);
+
+-- ARL: both files and the responsible are mandatory. Any other subtipo (or none): no files.
+-- coalesce keeps the check null-safe when subtipo is null.
+alter table novedades drop constraint if exists novedades_arl_chk;
+alter table novedades add constraint novedades_arl_chk check (
+  (coalesce(subtipo, '') = 'ARL' and adjunto_path is not null and firma_path is not null and responsable_id is not null)
+  or (coalesce(subtipo, '') <> 'ARL' and adjunto_path is null and firma_path is null));
+
+-- Paths are generated by the API: yyyy/mm/<uuid>-adjunto.<ext> and yyyy/mm/<uuid>-firma.png.
+alter table novedades drop constraint if exists novedades_paths_chk;
+alter table novedades add constraint novedades_paths_chk check (
+  (adjunto_path is null or adjunto_path ~ '^[0-9]{4}/(0[1-9]|1[0-2])/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-adjunto\.(pdf|png|jpg|webp)$')
+  and (firma_path is null or firma_path ~ '^[0-9]{4}/(0[1-9]|1[0-2])/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-firma\.png$'));
+
+-- One storage object can belong to a single novedad (a path is generated per upload).
+create unique index if not exists novedades_adjunto_path_key on novedades (adjunto_path) where adjunto_path is not null;
+create unique index if not exists novedades_firma_path_key on novedades (firma_path) where firma_path is not null;
+
+-- ---------------------------------------------------------------------------
+-- 3. Private bucket for the support files (ARL document and leader signature).
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('novedades-soportes', 'novedades-soportes', false, 10485760, array['application/pdf', 'image/png', 'image/jpeg', 'image/webp'])
+on conflict (id) do nothing;

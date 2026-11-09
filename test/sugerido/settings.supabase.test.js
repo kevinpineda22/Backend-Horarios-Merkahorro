@@ -12,7 +12,7 @@ const ROW = {
   max_working_days_per_week: 6,
   min_cashiers: 1,
   stale_after_days: 1,
-  blocking_absence_types: ["Vacaciones", "Estudio"],
+  blocking_absence_types: ["Vacaciones", "Permisos académicos"],
   updated_by: "u1",
   updated_at: "2026-10-01T00:00:00Z",
 };
@@ -29,7 +29,7 @@ test("getSettings parses numeric strings to numbers and returns camelCase", asyn
     maxWorkingDaysPerWeek: 6,
     minCashiers: 1,
     staleAfterDays: 1,
-    blockingAbsenceTypes: ["Vacaciones", "Estudio"],
+    blockingAbsenceTypes: ["Vacaciones", "Permisos académicos"],
     updatedBy: "u1",
     updatedAt: "2026-10-01T00:00:00Z",
   });
@@ -53,11 +53,11 @@ test("getSettings fails on non-numeric/blank values, missing row and db error", 
 test("updateSettings writes only provided keys (snake_case) plus audit, returns parsed row", async () => {
   const { client, log } = fakeSupabase({ tables: { sugerido_settings: ok({ ...ROW, utilization: "0.8" }) } });
   const repo = createSettingsRepo(client, { now: () => new Date("2026-10-29T12:00:00Z") });
-  const out = await repo.updateSettings({ utilization: 0.8, blockingAbsenceTypes: ["Estudio"], bogus: 1, minCashiers: undefined }, "user-9");
+  const out = await repo.updateSettings({ utilization: 0.8, blockingAbsenceTypes: ["Permisos académicos"], bogus: 1, minCashiers: undefined }, "user-9");
   assert.ok(
     has(log, "update", {
       utilization: 0.8,
-      blocking_absence_types: ["Estudio"],
+      blocking_absence_types: ["Permisos académicos"],
       updated_by: "user-9",
       updated_at: "2026-10-29T12:00:00.000Z",
     }),

@@ -10,7 +10,7 @@ const planner = Object.freeze({ role: "planner", sedeIds: ["s1"] });
 const plannerAll = Object.freeze({ role: "planner", sedeIds: null });
 const viewer = Object.freeze({ role: "viewer", sedeIds: ["s1"] });
 const user = { id: "user-1" };
-const input = { cedula: "1020304050", tipo: "Vacaciones", fechaInicio: "2026-11-03", fechaFin: "2026-11-14", observacion: null, sedeId: "s1" };
+const input = { cedula: "1020304050", tipo: "Vacaciones", fechaInicio: "2026-11-03", fechaFin: "2026-11-14", observacion: null, sedeId: "s1", detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } };
 
 const row = (o) => ({ cedula: "1020304050", tipo: "Permisos", fecha_inicio: "2026-11-10", fecha_fin: "2026-11-15", sede_id: "s1", created_by: "x", ...o });
 const make = (seed) => {
@@ -89,9 +89,9 @@ test("update: only provided fields change; client cannot touch audit/cancel colu
 
 test("update/anular: 404 when missing, 409 NOVEDAD_CANCELLED when cancelled", async () => {
   const { svc, repo } = make([row({ id: ID_A, anulada: true, anulada_at: "t" })]);
-  await rejects(svc.update(admin, user, ID_B, { tipo: "Estudio" }), 404, "NOVEDAD_NOT_FOUND");
+  await rejects(svc.update(admin, user, ID_B, { tipo: "Permisos académicos" }), 404, "NOVEDAD_NOT_FOUND");
   await rejects(svc.anular(admin, user, ID_B, { motivo: "m" }), 404, "NOVEDAD_NOT_FOUND");
-  await rejects(svc.update(admin, user, ID_A, { tipo: "Estudio" }), 409, "NOVEDAD_CANCELLED");
+  await rejects(svc.update(admin, user, ID_A, { tipo: "Permisos académicos" }), 409, "NOVEDAD_CANCELLED");
   await rejects(svc.anular(admin, user, ID_A, { motivo: "m" }), 409, "NOVEDAD_CANCELLED");
   assert.equal(repo.calls.update.length, 0);
 });
@@ -105,7 +105,7 @@ test("update: a row cancelled between read and write (repo returns null) is a 40
     repo.rows[0].anulada = true; // concurrent cancel after the read
     return snapshot;
   };
-  await rejects(svc.update(admin, user, ID_A, { tipo: "Estudio" }), 409, "NOVEDAD_CANCELLED");
+  await rejects(svc.update(admin, user, ID_A, { fechaFin: "2026-11-16" }), 409, "NOVEDAD_CANCELLED");
 });
 
 test("write scoping on existing rows: other sede and null-sede rows are forbidden for non-admins", async () => {

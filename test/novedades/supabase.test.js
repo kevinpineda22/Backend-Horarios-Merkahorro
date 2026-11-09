@@ -27,7 +27,7 @@ const has = (log, ...call) => log.some((c) => JSON.stringify(c) === JSON.stringi
 test("repo.list builds overlap + scope filters on the novedades table", async () => {
   const { log, client } = fakeClient();
   await createNovedadesRepo(client).list({
-    sede: "s1", sedeIds: ["s1", "s3"], sedeNotNull: true, cedula: "123456", tipo: "Estudio",
+    sede: "s1", sedeIds: ["s1", "s3"], sedeNotNull: true, cedula: "123456", tipo: "Permisos académicos",
     desde: "2026-11-18", hasta: "2026-11-25", incluirAnuladas: false, limit: 501,
   });
   assert.ok(has(log, "from", "novedades"));
@@ -36,7 +36,7 @@ test("repo.list builds overlap + scope filters on the novedades table", async ()
   assert.ok(has(log, "in", "sede_id", ["s1", "s3"]));
   assert.ok(has(log, "not", "sede_id", "is", null));
   assert.ok(has(log, "eq", "cedula", "123456"));
-  assert.ok(has(log, "eq", "tipo", "Estudio"));
+  assert.ok(has(log, "eq", "tipo", "Permisos académicos"));
   assert.ok(has(log, "gte", "fecha_fin", "2026-11-18")); // row ends on/after range start
   assert.ok(has(log, "lte", "fecha_inicio", "2026-11-25")); // row starts on/before range end
   assert.ok(has(log, "order", "fecha_inicio", { ascending: false }));
@@ -65,14 +65,26 @@ test("repo.findOverlapping queries active rows of the cedula, excluding the give
 
 test("repo.update with onlyActive guards on anulada=false and returns null when nothing matched", async () => {
   const { log, client } = fakeClient({ data: null, error: null });
-  const out = await createNovedadesRepo(client).update("id1", { tipo: "Estudio" }, { onlyActive: true });
+  const out = await createNovedadesRepo(client).update("id1", { tipo: "Permisos académicos" }, { onlyActive: true });
   assert.equal(out, null);
-  assert.ok(has(log, "update", { tipo: "Estudio" }));
+  assert.ok(has(log, "update", { tipo: "Permisos académicos" }));
   assert.ok(has(log, "eq", "id", "id1"));
   assert.ok(has(log, "eq", "anulada", false));
   const loose = fakeClient({ data: { id: "id1" }, error: null });
   await createNovedadesRepo(loose.client).update("id1", {}, {});
   assert.equal(has(loose.log, "eq", "anulada", false), false);
+});
+
+test("repo: unique violation (23505) on a file path index maps to 409 NOVEDAD_FILE_IN_USE", async () => {
+  for (const idx of ["novedades_adjunto_path_key", "novedades_firma_path_key"]) {
+    const dup = fakeClient({ data: null, error: { code: "23505", message: `duplicate key value violates unique constraint "${idx}"` } });
+    const repo = createNovedadesRepo(dup.client);
+    const ok = (e) => e.statusCode === 409 && e.code === "NOVEDAD_FILE_IN_USE" && e.message === "Este archivo ya está adjunto a otra novedad.";
+    await assert.rejects(repo.insert({ adjunto_path: "p" }), ok);
+    await assert.rejects(repo.update("i", { firma_path: "p" }, {}), ok);
+  }
+  const other = { code: "23505", message: 'duplicate key value violates unique constraint "something_else"' };
+  await assert.rejects(createNovedadesRepo(fakeClient({ data: null, error: other }).client).insert({}), (e) => e === other);
 });
 
 test("repo: FK violation (23503) maps to 404 SEDE_NOT_FOUND; other errors propagate", async () => {

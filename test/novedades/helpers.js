@@ -72,3 +72,33 @@ export function createFakeRepo(seed = []) {
 export const ID_A = "11111111-1111-4111-8111-111111111111";
 export const ID_B = "22222222-2222-4222-8222-222222222222";
 export const ID_C = "33333333-3333-4333-8333-333333333333";
+
+/** In-memory fake of the novedades storage port: createUploadUrl / exists / createDownloadUrl. */
+export function createFakeStorage(existing = []) {
+  const files = new Set(existing);
+  const calls = { upload: [], exists: [], download: [] };
+  return {
+    files,
+    calls,
+    async createUploadUrl(path) {
+      calls.upload.push(path);
+      return { path, signedUrl: `https://storage.test/upload/${path}?token=T`, token: "T" };
+    },
+    async exists(path) {
+      calls.exists.push(path);
+      return files.has(path);
+    },
+    async createDownloadUrl(path, expiresIn) {
+      calls.download.push({ path, expiresIn });
+      return `https://storage.test/download/${path}?exp=${expiresIn}`;
+    },
+  };
+}
+
+export const ADJ = "2026/11/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-adjunto.pdf";
+export const FIR = "2026/11/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-firma.png";
+export const ADJ2 = "2026/11/aaaaaaaa-5d4a-4b6e-9a1c-0123456789ab-adjunto.png";
+export const FIR2 = "2026/11/bbbbbbbb-5d4a-4b6e-9a1c-0123456789ab-firma.png";
+export const HIS = "2026/11/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-historia.pdf";
+export const HIS2 = "2026/11/cccccccc-5d4a-4b6e-9a1c-0123456789ab-historia.pdf";
+export const SOP = "2026/11/3f2b8c1e-5d4a-4b6e-9a1c-0123456789ab-soporte.jpg";

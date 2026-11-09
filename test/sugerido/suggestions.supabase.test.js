@@ -10,7 +10,7 @@ const repoWith = (tables = {}, rpcs = {}) => createSuggestionsRepo(fakeSupabase(
 test("listSedes maps rows to camelCase ordered by id", async () => {
   const { client, log } = fakeSupabase({ tables: { sugerido_sedes: ok([SEDE]) } });
   assert.deepEqual(await createSuggestionsRepo(client).listSedes(), [
-    { sedeId: "villahermosa", nombre: "Villahermosa", bodegas: ["00201", "PV002"], activo: true },
+    { sedeId: "villahermosa", nombre: "Villahermosa", bodegas: ["00201", "PV002"], activo: true, registersOverride: null },
   ]);
   assert.ok(has(log, "from", "sugerido_sedes"));
   assert.ok(has(log, "order", "sede_id", { ascending: true }));
@@ -217,4 +217,30 @@ test("getRunById reads exactly that run (by id, not the latest) with parsed slot
   const none = fakeSupabase({ tables: { sugerido_runs: ok(null) } });
   assert.equal(await createSuggestionsRepo(none.client).getRunById("zz"), null);
   assert.equal(none.log.some((c) => c[0] === "from" && c[1] === "sugerido_slots"), false);
+});
+
+test("sede reads select registers_override and expose it as registersOverride (null when unset)", async () => {
+  const { client, log } = fakeSupabase({ tables: { sugerido_sedes: ok({ ...SEDE, registers_override: 9 }) } });
+  assert.equal((await createSuggestionsRepo(client).getSede("villahermosa")).registersOverride, 9);
+  assert.ok(log.some((c) => c[0] === "select" && String(c[1]).includes("registers_override")));
+  assert.equal((await repoWith({ sugerido_sedes: ok(SEDE) }).getSede("villahermosa")).registersOverride, null);
+});
+
+test("setRegistersOverride updates only that column of that sede and returns the mapped sede", async () => {
+  const { client, log } = fakeSupabase({ tables: { sugerido_sedes: ok({ ...SEDE, registers_override: 7 }) } });
+  const out = await createSuggestionsRepo(client).setRegistersOverride("villahermosa", 7);
+  assert.equal(out.registersOverride, 7);
+  assert.ok(has(log, "update", { registers_override: 7 }));
+  assert.ok(has(log, "eq", "sede_id", "villahermosa"));
+  const cleared = fakeSupabase({ tables: { sugerido_sedes: ok({ ...SEDE, registers_override: null }) } });
+  await createSuggestionsRepo(cleared.client).setRegistersOverride("villahermosa", null);
+  assert.ok(has(cleared.log, "update", { registers_override: null }));
+});
+
+test("setRegistersOverride on an unknown sede -> 404 SEDE_NOT_MAPPED; database errors propagate", async () => {
+  await assert.rejects(
+    repoWith({ sugerido_sedes: ok(null) }).setRegistersOverride("nope", 3),
+    (e) => e.statusCode === 404 && e.code === "SEDE_NOT_MAPPED",
+  );
+  await assert.rejects(repoWith({ sugerido_sedes: { data: null, error: new Error("down") } }).setRegistersOverride("x", 3), /down/);
 });

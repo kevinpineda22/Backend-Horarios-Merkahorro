@@ -102,3 +102,16 @@ export const settingsPatchSchema = z
   })
   .partial()
   .refine((patch) => Object.values(patch).some((v) => v !== undefined), { message: "Debes enviar al menos un parámetro" });
+
+// ---------------------------------------------------------------------------
+// Registers override (PUT /sedes/:sedeId/registers). 1..50 physical registers, or null to clear the override
+// and fall back to the count derived from sales. The key is mandatory: an empty body is never an implicit clear.
+// ---------------------------------------------------------------------------
+export const MAX_REGISTERS = 50;
+
+export const registersBodySchema = z.object({
+  // One refine (not a union of number|null) so every bad value, in range or not, gets the same Spanish message.
+  override: z.unknown().refine((v) => v === null || (Number.isInteger(v) && v >= 1 && v <= MAX_REGISTERS), {
+    message: `El número de puestos debe ser un entero entre 1 y ${MAX_REGISTERS}, o null para quitar el ajuste`,
+  }),
+});

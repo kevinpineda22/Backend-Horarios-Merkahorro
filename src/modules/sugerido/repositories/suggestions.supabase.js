@@ -30,7 +30,10 @@ function toSlot(s) {
   };
 }
 
-const toSedeDto = (r) => ({ sedeId: r.sede_id, nombre: r.nombre, bodegas: r.bodegas, activo: r.activo });
+const SEDE_COLUMNS = "sede_id, nombre, bodegas, activo, registers_override";
+const toSedeDto = (r) => ({
+  sedeId: r.sede_id, nombre: r.nombre, bodegas: r.bodegas, activo: r.activo, registersOverride: r.registers_override ?? null,
+});
 
 /** Sedes, suggestion runs and overrides over Supabase (client injected; fakes in tests). */
 export function createSuggestionsRepo(client) {
@@ -59,15 +62,24 @@ export function createSuggestionsRepo(client) {
   return {
     async listSedes() {
       const rows = unwrap(
-        await client.from("sugerido_sedes").select("sede_id, nombre, bodegas, activo").eq("activo", true).order("sede_id", { ascending: true }),
+        await client.from("sugerido_sedes").select(SEDE_COLUMNS).eq("activo", true).order("sede_id", { ascending: true }),
       );
       return (rows ?? []).filter((r) => r.activo === true).map(toSedeDto);
     },
 
     /** Unknown, inactive, or bodega-less sede cannot be forecast: 404 SEDE_NOT_MAPPED. */
     async getSede(sedeId) {
-      const row = unwrap(await client.from("sugerido_sedes").select("sede_id, nombre, bodegas, activo").eq("sede_id", sedeId).maybeSingle());
+      const row = unwrap(await client.from("sugerido_sedes").select(SEDE_COLUMNS).eq("sede_id", sedeId).maybeSingle());
       if (!row || row.activo !== true || !Array.isArray(row.bodegas) || row.bodegas.length === 0) throw notMapped();
+      return toSedeDto(row);
+    },
+
+    /** Sets (1..50) or clears (null) the manual register count of a mapped sede; 404 SEDE_NOT_MAPPED when it does not exist. */
+    async setRegistersOverride(sedeId, override) {
+      const row = unwrap(
+        await client.from("sugerido_sedes").update({ registers_override: override }).eq("sede_id", sedeId).select(SEDE_COLUMNS).maybeSingle(),
+      );
+      if (!row) throw notMapped();
       return toSedeDto(row);
     },
 
