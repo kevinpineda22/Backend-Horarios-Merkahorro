@@ -125,6 +125,26 @@ export function createHorariosService({ repo, profilesRepo }) {
       };
     },
 
+    /** Schedules of a sede by state, newest week first, with their head-count. Two repo calls, no N+1. */
+    async listSchedules(access, sedeId, { status, limit }) {
+      assertCanRead(access, sedeId);
+      await assertSede(sedeId);
+      const rows = await repo.listSchedules({ sedeId, status, limit });
+      if (rows.length === 0) return [];
+      const counts = await repo.countPeople(rows.map((r) => r.id));
+      const nameOf = nameResolver();
+      return Promise.all(
+        rows.map(async (r) => ({
+          weekStart: r.week_start,
+          status: r.state,
+          version: r.version,
+          publishedAt: r.published_at ? new Date(r.published_at).toISOString() : null,
+          publishedBy: await nameOf(r.published_by),
+          peopleCount: counts[r.id] ?? 0,
+        })),
+      );
+    },
+
     async save(access, user, sedeId, weekStart, { expectedVersion, cedulas, shifts }) {
       assertCanWrite(access, sedeId);
       await assertSede(sedeId);

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "../../shared/http/asyncHandler.js";
 import { validate } from "../../shared/http/validate.js";
 import { loadAccess, requireRole, requireSede } from "../../shared/http/authorize.js";
-import { historyQuerySchema, publishBodySchema, saveBodySchema, weekParamsSchema } from "./horarios.schemas.js";
+import { historyQuerySchema, publishBodySchema, saveBodySchema, schedulesListQuerySchema, sedeParamsSchema, weekParamsSchema } from "./horarios.schemas.js";
 
 /**
  * /api/horarios. Dependencies are injected so tests run with fakes:
@@ -21,6 +21,17 @@ export function createHorariosRouter({ authenticate, accessRepo, service }) {
   const base = "/sedes/:sedeId/weeks/:weekStart";
 
   router.use(authenticate, loadAccess(accessRepo));
+
+  // Schedules (weeks) of a sede by state, for the "Horarios publicados" screen.
+  router.get(
+    "/sedes/:sedeId/schedules",
+    readers,
+    validate({ params: sedeParamsSchema, query: schedulesListQuerySchema }),
+    sede,
+    asyncHandler(async (req, res) =>
+      res.json({ data: await service.listSchedules(req.access, req.params.sedeId, req.query) }),
+    ),
+  );
 
   router.get(
     `${base}/shifts`,

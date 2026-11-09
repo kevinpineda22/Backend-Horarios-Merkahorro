@@ -29,6 +29,14 @@ const optionalText = (max) =>
     .refine((v) => !v.includes("\u0000"), "Caracteres no permitidos")
     .nullish();
 
+const sedeId = z.string({ required_error: "La sede es obligatoria" }).trim().min(1, "Sede inválida");
+
+export const SCHEDULE_STATES = ["PUBLICADO", "BORRADOR"]; // sede_week_schedules.state (004_shifts.sql)
+export const SCHEDULES_DEFAULT_LIMIT = 26;
+export const SCHEDULES_MAX_LIMIT = 52;
+
+export const sedeParamsSchema = z.object({ sedeId });
+
 export const weekParamsSchema = z.object({
   sedeId: z.string({ required_error: "La sede es obligatoria" }).trim().min(1, "Sede inválida"),
   weekStart: date.refine(isMonday, "weekStart debe ser un lunes válido (YYYY-MM-DD)"),
@@ -79,4 +87,16 @@ export const historyQuerySchema = z.object({
     .refine((n) => n >= 1 && n <= HISTORY_MAX_LIMIT, `limit debe estar entre 1 y ${HISTORY_MAX_LIMIT}`)
     .optional()
     .transform((n) => n ?? HISTORY_DEFAULT_LIMIT),
+});
+
+// GET /sedes/:sedeId/schedules?status=PUBLICADO&limit=26
+export const schedulesListQuerySchema = z.object({
+  status: z.enum(SCHEDULE_STATES, { errorMap: () => ({ message: "status debe ser PUBLICADO o BORRADOR" }) }).default("PUBLICADO"),
+  limit: z
+    .string()
+    .regex(/^\d+$/, "limit inválido")
+    .transform(Number)
+    .refine((n) => n >= 1 && n <= SCHEDULES_MAX_LIMIT, `limit debe estar entre 1 y ${SCHEDULES_MAX_LIMIT}`)
+    .optional()
+    .transform((n) => n ?? SCHEDULES_DEFAULT_LIMIT),
 });

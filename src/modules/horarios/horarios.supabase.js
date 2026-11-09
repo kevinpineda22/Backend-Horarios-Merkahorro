@@ -109,6 +109,27 @@ export function createHorariosRepo(client) {
       return data ?? null;
     },
 
+    /** Schedules of a sede in one state, newest week first. One query. */
+    async listSchedules({ sedeId, status, limit }) {
+      const { data, error } = await client
+        .from("sede_week_schedules")
+        .select(SCHEDULE_COLUMNS)
+        .eq("sede_id", sedeId)
+        .eq("state", status)
+        .order("week_start", { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      return data ?? [];
+    },
+
+    /** Distinct cedulas per schedule in ONE grouped rpc (migration 009): { [scheduleId]: n }. */
+    async countPeople(scheduleIds) {
+      if (!scheduleIds.length) return {};
+      const { data, error } = await client.rpc("shifts_people_counts", { p_schedule_ids: scheduleIds });
+      if (error) throw error;
+      return Object.fromEntries((data ?? []).map((r) => [r.schedule_id, Number(r.people)]));
+    },
+
     async listShifts(scheduleId) {
       return fetchAll(() =>
         client

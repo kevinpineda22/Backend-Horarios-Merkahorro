@@ -164,6 +164,25 @@ Each sede has a fixed number of physical checkout registers ("puestos de pago").
 
 Side effect on tests: listing sedes now touches the sales pool (lazily, on the first request), so `test/sugerido/wiring.test.js` no longer asserts it does not.
 
+### Published schedules list (migration 009, branch `feat/published-schedules-list`, not applied, not pushed)
+
+`GET /api/horarios/sedes/:sedeId/schedules?status=PUBLICADO&limit=26` lists the weeks of a sede for the "Horarios publicados" screen.
+
+- **Auth:** exactly like the shifts read: authenticate -> role `admin | planner | viewer` -> validate -> sede access. 401 without a token, 403 `FORBIDDEN_ROLE` / `FORBIDDEN_SEDE`, 404 `SEDE_NOT_FOUND` for an unknown sede, 400 `VALIDATION_ERROR` for a bad query.
+- **Query:** `status` = `PUBLICADO` (default) or `BORRADOR` (the two values of the `sede_week_schedules.state` CHECK); `limit` 1..52, default 26.
+- **Response:** `{ data: [{ weekStart, status, version, publishedAt, publishedBy, peopleCount }] }`, ordered by `weekStart` DESC (empty list when there is none).
+
+| Field | Source |
+|---|---|
+| `weekStart` | `sede_week_schedules.week_start` |
+| `status` | `sede_week_schedules.state` |
+| `version` | `sede_week_schedules.version` |
+| `publishedAt` | `sede_week_schedules.published_at`, normalized to ISO-8601 UTC; `null` for drafts |
+| `publishedBy` | display name of `sede_week_schedules.published_by` through the profiles repo (`nombre`); `null` for drafts or when the profile has no name |
+| `peopleCount` | distinct `shifts.cedula` with at least one row in that schedule (any `tipo`, DESCANSO included); 0 if the schedule has no rows |
+
+Two round trips, no N+1: one query on `sede_week_schedules`, one grouped rpc `shifts_people_counts(uuid[])` (PostgREST cannot GROUP BY). That rpc is **migration 009** (`db/migrations/009_shifts_people_counts.sql`, verify `db/verification/009_shifts_people_counts_verify.sql`, rollback `db/migrations/rollback/009_shifts_people_counts.down.sql`): a read-only function, service_role only, no table changes. **Apply 009 BEFORE deploying the backend** (the list answers 500 without it; every other endpoint is unaffected).
+
 ### Environment variables (names only — never commit values)
 
 | Where | Variable | Notes |
@@ -200,6 +219,7 @@ Full task list with file names: Engram `sdd/sugerido-cajeras/tasks` (see below).
 5. Novedades ARL (006): apply `006_novedades_arl.sql` -> deploy Backend-Horarios -> deploy the frontend (see the Novedades section above).
 6. Novedades details (007): apply `007_novedades_detalles.sql` (after 006) -> deploy Backend-Horarios back to back -> deploy the frontend.
 7. Registers cap (008): apply `008_sugerido_registers.sql` -> run its verify script -> deploy Backend-Horarios (it breaks before 008) -> deploy the frontend. Recompute the weeks you want capped.
+8. Published schedules list (009): apply `009_shifts_people_counts.sql` -> run its verify script -> deploy Backend-Horarios -> deploy the frontend screen.
 
 ## Working agreement
 
