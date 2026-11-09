@@ -92,3 +92,15 @@ test("CORS: allowed origin is reflected, unknown origin -> 403", async () => {
     await close();
   }
 });
+
+test("API responses are never cacheable: they depend on the signed-in user", async () => {
+  const { base, close } = await listen(createApp());
+  try {
+    const ok = await fetch(`${base}/api/health`);
+    assert.equal(ok.headers.get("cache-control"), "no-store");
+    const missing = await fetch(`${base}/api/does-not-exist`);
+    assert.equal(missing.headers.get("cache-control"), "no-store");
+  } finally {
+    await close();
+  }
+});

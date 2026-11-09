@@ -16,6 +16,13 @@ export function createApp({ routes = defaultRoutes } = {}) {
 
   app.use(helmet());
   app.use(corsMiddleware);
+  // Every answer depends on the signed-in user (and on the CORS origin). Vercel's default
+  // "public, max-age=0, must-revalidate" let a browser reuse a stored answer from another origin,
+  // which then failed CORS and read as a network error ("No pudimos cargar las novedades").
+  app.use((_req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    next();
+  });
   if (process.env.NODE_ENV !== "test") app.use(morgan("dev"));
   app.use(express.json({ limit: "2mb" }));
 
