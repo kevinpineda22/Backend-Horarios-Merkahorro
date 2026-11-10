@@ -125,6 +125,39 @@ export function createHorariosService({ repo, profilesRepo }) {
       };
     },
 
+    /**
+     * PUBLICADO -> BORRADOR so the team stops seeing the week. Checks run in the contract order (404, not published,
+     * stale version, paid payroll cut) for clear errors; the RPC repeats them under the week lock for concurrency safety.
+     */
+    async unpublish(access, user, sedeId, weekStart, { expectedVersion }) {
+      assertCanWrite(access, sedeId);
+      await assertSede(sedeId);
+      const schedule = await repo.findSchedule(sedeId, weekStart);
+      if (!schedule) {
+        throw createHttpError(404, "Todavía no hay un horario guardado para esta semana.", "SCHEDULE_NOT_FOUND");
+      }
+      if (schedule.state !== "PUBLICADO") throw createHttpError(409, "Este horario no está publicado.", "NOT_PUBLISHED");
+      if (schedule.version !== expectedVersion) {
+        const err = createHttpError(
+          409,
+          "Otra persona guardó cambios en este horario. Carga la versión guardada para continuar.",
+          "VERSION_CONFLICT",
+        );
+        err.details = { currentVersion: schedule.version };
+        throw err;
+      }
+      const paidCut = await repo.findPaidCutOverlapping(weekStart, addDays(weekStart, 6));
+      if (paidCut) {
+        const err = createHttpError(409, "No puedes despublicar: esta semana ya está en un corte de nómina pagado.", "PAYROLL_CUT_PAID");
+        err.details = { cut: paidCut };
+        throw err;
+      }
+
+      await repo.unpublishWeek({ sedeId, weekStart, expectedVersion, actor: user.id });
+      const draft = await repo.findSchedule(sedeId, weekStart);
+      return { schedule: await toScheduleDto(draft, sedeId, weekStart, nameResolver()), warnings: [] };
+    },
+
     /** Schedules of a sede by state, newest week first, with their head-count. Two repo calls, no N+1. */
     async listSchedules(access, sedeId, { status, limit }) {
       assertCanRead(access, sedeId);

@@ -183,6 +183,17 @@ Side effect on tests: listing sedes now touches the sales pool (lazily, on the f
 
 Two round trips, no N+1: one query on `sede_week_schedules`, one grouped rpc `shifts_people_counts(uuid[])` (PostgREST cannot GROUP BY). That rpc is **migration 009** (`db/migrations/009_shifts_people_counts.sql`, verify `db/verification/009_shifts_people_counts_verify.sql`, rollback `db/migrations/rollback/009_shifts_people_counts.down.sql`): a read-only function, service_role only, no table changes. **Apply 009 BEFORE deploying the backend** (the list answers 500 without it; every other endpoint is unaffected).
 
+### Unpublish a week (migration 010, branch `feat/unpublish-schedule`, not applied, not pushed)
+
+`POST /api/horarios/sedes/:sedeId/weeks/:weekStart/unpublish`, body `{ "expectedVersion": int >= 1 }`: returns a PUBLICADO week to BORRADOR so the team stops seeing it while the leader rebuilds it.
+
+- **Auth:** identical to publish (authenticate -> role `admin | planner` -> validate -> sede access): 401, 403 `FORBIDDEN_ROLE` (viewers), 403 `FORBIDDEN_SEDE`, 404 `SEDE_NOT_FOUND`, 400 `VALIDATION_ERROR`.
+- **Response 200:** `{ "data": { "schedule": <schedule DTO> }, "warnings": [] }`. NOTE: unlike save/publish (which return `{ schedule, warnings, ... }` at the top level), `schedule` sits under `data` here, as the contract asked. The DTO is the one the other endpoints return: `{ sedeId, weekStart, state: "BORRADOR", version, updatedBy, updatedByName, updatedAt, publishedBy: null, publishedByName: null, publishedAt: null }`.
+- **Errors, in this order:** 404 `SCHEDULE_NOT_FOUND`; 409 `NOT_PUBLISHED` ("Este horario no está publicado."); 409 `VERSION_CONFLICT` (same message as publish, `details.currentVersion`); 409 `PAYROLL_CUT_PAID` ("No puedes despublicar: esta semana ya está en un corte de nómina pagado.", `details.cut = { id, from, to }`) when any day Monday..Sunday of the week falls inside a payroll cut in state PAGADO. ANULADO cuts never block.
+- **Effect:** `state = BORRADOR`, `version + 1`, `published_at` / `published_by` = NULL, `updated_by` = the actor. Shifts are untouched. One `shift_history` row with `action = 'DESPUBLICAR'` (schedule-level like `PUBLICAR`: no shift/cedula/fecha; `before` = `{state, publishedAt, publishedBy}`, `after` = `{state: "BORRADOR"}`, `schedule_version` = the new version). It shows up in `GET .../history`.
+- **Why a migration:** publish is an RPC under an advisory lock + row lock, and `shift_history` has CHECK constraints that do not allow a new action. Doing the state change with plain table updates would race with saves/publishes and could not write the history row. **Migration 010** (`db/migrations/010_unpublish_schedule.sql`, verify `db/verification/010_unpublish_schedule_verify.sql`, rollback `db/migrations/rollback/010_unpublish_schedule.down.sql`) recreates the two history CHECKs (every existing row still satisfies them) and adds `shifts_unpublish_week(text, date, int, uuid)` (service_role only) which takes the same lock as `shifts_publish_week`, repeats the checks above and does the paid-cut test inside the lock. It needs 004 and 005. **Apply 010 BEFORE deploying the backend** (the endpoint answers 500 without it; nothing else is affected). Rollback deletes the DESPUBLICAR history rows (snapshot in `shift_history_backup_010`).
+- **Other readers:** `GET .../schedules?status=PUBLICADO` filters on `state`, so an unpublished week disappears from it (it shows with `status=BORRADOR`). Payroll is unchanged: it still counts the hours of the untouched shifts, and a BORRADOR week that has TRABAJO shifts in the period adds the `UNPUBLISHED_WEEKS` warning (payroll.service.js). Because a PAGADO cut blocks the unpublish, a paid period can never contain a newly unpublished week.
+
 ### Environment variables (names only — never commit values)
 
 | Where | Variable | Notes |
@@ -220,6 +231,7 @@ Full task list with file names: Engram `sdd/sugerido-cajeras/tasks` (see below).
 6. Novedades details (007): apply `007_novedades_detalles.sql` (after 006) -> deploy Backend-Horarios back to back -> deploy the frontend.
 7. Registers cap (008): apply `008_sugerido_registers.sql` -> run its verify script -> deploy Backend-Horarios (it breaks before 008) -> deploy the frontend. Recompute the weeks you want capped.
 8. Published schedules list (009): apply `009_shifts_people_counts.sql` -> run its verify script -> deploy Backend-Horarios -> deploy the frontend screen.
+9. Unpublish (010): apply `010_unpublish_schedule.sql` (after 004 and 005) -> run its verify script -> deploy Backend-Horarios -> deploy the frontend.
 
 ## Working agreement
 

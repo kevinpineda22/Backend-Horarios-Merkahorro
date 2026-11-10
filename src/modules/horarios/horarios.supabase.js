@@ -55,6 +55,14 @@ function mapRpcError(error) {
     err.details = { conflicts: parseConflicts(error.details) };
     return err;
   }
+  if (message.includes("NOT_PUBLISHED")) {
+    return createHttpError(409, "Este horario no está publicado.", "NOT_PUBLISHED");
+  }
+  if (message.includes("PAYROLL_CUT_PAID")) {
+    const err = createHttpError(409, "No puedes despublicar: esta semana ya está en un corte de nómina pagado.", "PAYROLL_CUT_PAID");
+    err.details = { cut: { id: Number.parseInt(error.details, 10) || null } };
+    return err;
+  }
   if (message.includes("SCHEDULE_NOT_FOUND")) {
     return createHttpError(404, "Todavía no hay un horario guardado para esta semana.", "SCHEDULE_NOT_FOUND");
   }
@@ -175,6 +183,29 @@ export function createHorariosRepo(client) {
         p_expected_version: expectedVersion,
         p_actor: actor,
       }),
+
+    unpublishWeek: ({ sedeId, weekStart, expectedVersion, actor }) =>
+      rpc(client, "shifts_unpublish_week", {
+        p_sede: sedeId,
+        p_week: weekStart,
+        p_expected_version: expectedVersion,
+        p_actor: actor,
+      }),
+
+    /** A PAGADO payroll cut that shares at least one day with [from, to]: { id, from, to } or null. ANULADO cuts never match. */
+    async findPaidCutOverlapping(from, to) {
+      const { data, error } = await client
+        .from("payroll_cuts")
+        .select("id, period_start, period_end")
+        .eq("state", "PAGADO")
+        .lte("period_start", to)
+        .gte("period_end", from)
+        .order("id", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data ? { id: Number(data.id), from: data.period_start, to: data.period_end } : null;
+    },
 
     async listHistory({ scheduleId, limit }) {
       const { data, error } = await client

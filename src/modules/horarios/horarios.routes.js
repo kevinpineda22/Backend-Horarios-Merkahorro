@@ -2,7 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "../../shared/http/asyncHandler.js";
 import { validate } from "../../shared/http/validate.js";
 import { loadAccess, requireRole, requireSede } from "../../shared/http/authorize.js";
-import { historyQuerySchema, publishBodySchema, saveBodySchema, schedulesListQuerySchema, sedeParamsSchema, weekParamsSchema } from "./horarios.schemas.js";
+import { historyQuerySchema, publishBodySchema, saveBodySchema, schedulesListQuerySchema, unpublishBodySchema, sedeParamsSchema, weekParamsSchema } from "./horarios.schemas.js";
 
 /**
  * /api/horarios. Dependencies are injected so tests run with fakes:
@@ -59,6 +59,18 @@ export function createHorariosRouter({ authenticate, accessRepo, service }) {
     asyncHandler(async (req, res) =>
       res.json(await service.publish(req.access, req.user, req.params.sedeId, req.params.weekStart, req.body)),
     ),
+  );
+
+  // Back to BORRADOR: same roles and sede access as publish. Answers { data: { schedule }, warnings }.
+  router.post(
+    `${base}/unpublish`,
+    writers,
+    validate({ params: weekParamsSchema, body: unpublishBodySchema }),
+    sede,
+    asyncHandler(async (req, res) => {
+      const { schedule, warnings } = await service.unpublish(req.access, req.user, req.params.sedeId, req.params.weekStart, req.body);
+      res.json({ data: { schedule }, warnings });
+    }),
   );
 
   router.get(

@@ -79,6 +79,13 @@ export const publishBodySchema = z.object({
     .min(1, "Solo se puede publicar un horario ya guardado"),
 });
 
+export const unpublishBodySchema = z.object({
+  expectedVersion: z
+    .number({ required_error: "expectedVersion es obligatorio", invalid_type_error: "expectedVersion debe ser un número" })
+    .int("expectedVersion debe ser un entero")
+    .min(1, "Solo se puede despublicar un horario ya publicado"),
+});
+
 export const historyQuerySchema = z.object({
   limit: z
     .string()
