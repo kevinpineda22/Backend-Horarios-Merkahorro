@@ -198,9 +198,16 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
 
       // A failing source rejects the whole run: an unavailable pool is never an empty pool.
       const hasta = addDays(weekStart, 6);
-      const [history, registerCounts, pool, absenceResult] = await Promise.all([
-        salesRepo.loadSlotHistory({ bodegas: sede.bodegas, desde: addDays(weekStart, -HISTORY_LOOKBACK_DAYS), hasta }),
-        salesRepo.loadRegisterCounts({ bodegas: sede.bodegas, hasta }),
+      // The sales pool has ONE connection: the two sales queries go one after the other. Run at once,
+      // the second waited for the first and, past the pool's 5 s acquire timeout, failed as
+      // "La base de ventas no está disponible". The other sources are not Postgres and stay parallel.
+      const salesData = (async () => {
+        const historyData = await salesRepo.loadSlotHistory({ bodegas: sede.bodegas, desde: addDays(weekStart, -HISTORY_LOOKBACK_DAYS), hasta });
+        const counts = await salesRepo.loadRegisterCounts({ bodegas: sede.bodegas, hasta });
+        return [historyData, counts];
+      })();
+      const [[history, registerCounts], pool, absenceResult] = await Promise.all([
+        salesData,
         staffPort.getCashierPool(sedeId),
         absencesPort.getAbsences({ weekStart, blockingTypes: snapshot.blockingAbsenceTypes }),
       ]);

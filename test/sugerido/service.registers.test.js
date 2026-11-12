@@ -284,3 +284,27 @@ test("concurrent reads of the same bodegas share ONE in-flight query", async () 
   assert.equal(queries, 1);
   assert.ok(weeks.every((w) => w.registers.derived === 10));
 });
+
+// The pg pool has ONE connection: two sales queries at once make the second wait for the first and,
+// past connectionTimeoutMillis, fail as "La base de ventas no está disponible" (seen in production).
+test("computeRun never runs two sales queries at the same time", async () => {
+  const ctx = makeDeps({ registers: { B1: 2, B2: 1 } });
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const track = (fn) => async (args) => {
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    try {
+      return await fn(args);
+    } finally {
+      inFlight -= 1;
+    }
+  };
+  ctx.deps.salesRepo = {
+    loadSlotHistory: track(ctx.deps.salesRepo.loadSlotHistory),
+    loadRegisterCounts: track(ctx.deps.salesRepo.loadRegisterCounts),
+  };
+  await createSugeridoService(ctx.deps).computeRun(USER, "s1", WEEK);
+  assert.equal(maxInFlight, 1);
+});

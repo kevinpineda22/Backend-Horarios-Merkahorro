@@ -50,6 +50,8 @@ function toNumber(value) {
 }
 
 function mapDbError(err) {
+  // The leader only sees a generic message: keep the real cause in the server log (code + message, no SQL params).
+  console.error(`[sales-db] ${err?.code ?? "NO_CODE"}: ${err?.message ?? err}`);
   if (err.code === QUERY_CANCELED) {
     return createHttpError(504, "La consulta a la base de datos de ventas excedió el tiempo límite.", "SALES_DB_TIMEOUT");
   }
