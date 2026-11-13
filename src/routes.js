@@ -11,6 +11,7 @@ import { createAccesosRouter } from "./modules/accesos/accesos.routes.js";
 import { createAccesosService } from "./modules/accesos/accesos.service.js";
 import { getEnv } from "./config/env.js";
 import { createEmpleadosRouter } from "./modules/empleados/empleados.routes.js";
+import { createCashierExclusionsRepo } from "./modules/empleados/cashierExclusions.supabase.js";
 import { createEmpleadosService } from "./modules/empleados/empleados.service.js";
 import { createSedeAliasRepo } from "./modules/empleados/sedeAliases.supabase.js";
 import { createLazyTrazabilidadClient } from "./modules/empleados/trazabilidad.client.js";
@@ -58,6 +59,8 @@ export const parseTtl = (raw) => (/^\d+$/.test(raw ?? "") ? Number(raw) : undefi
 const empleadosService = createEmpleadosService({
   client: createLazyTrazabilidadClient(() => getEnv()),
   aliasRepo: createSedeAliasRepo(lazyClient),
+  exclusionsRepo: createCashierExclusionsRepo(lazyClient),
+  profilesRepo: createProfilesRepo(lazyClient),
   ttlMs: parseTtl(process.env.EMPLEADOS_CACHE_TTL_MS),
 });
 

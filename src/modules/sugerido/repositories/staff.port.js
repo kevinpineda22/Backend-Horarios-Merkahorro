@@ -42,6 +42,8 @@ export function createStaffPort(empleadosService, sedeRepo) {
       const cedulas = new Set();
       for (const row of result.data) {
         if (row?.activo !== true || row.sedeId !== sedeId) continue;
+        // "Solo surtidor": SIESA says cashier, the leader says she does not work the register (yet).
+        if (row.excluidoDeCaja === true) continue;
         if (!CASHIER_CARGOS.includes(normalizeCargo(row.cargo))) continue;
         const cedula = normalizeCedula(row.cedula);
         if (cedula) cedulas.add(cedula);

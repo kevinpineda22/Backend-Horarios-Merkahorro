@@ -15,10 +15,16 @@ const unavailable = () =>
  * (single-flight). Failures are never cached and never turn into an empty list: an
  * expired entry is not served stale, the caller gets 503 STAFF_SOURCE_UNAVAILABLE.
  * Mapping counters are logged (counts only, no PII).
+ *
+ * Cashier exclusions ("Solo surtidor", migration 011) are NOT part of the cached directory: they change on a click,
+ * so every list() reads the active ones (one query) and decorates the rows it returns with `excluidoDeCaja` and
+ * `exclusion`. Without an exclusionsRepo nobody is excluded.
  */
 export function createEmpleadosService({
   client,
   aliasRepo,
+  exclusionsRepo = null,
+  profilesRepo = null,
   ttlMs = DEFAULT_TTL_MS,
   now = Date.now,
   logger = console,
@@ -49,6 +55,18 @@ export function createEmpleadosService({
     return inflight;
   }
 
+  const toExclusionDto = async (e, nameOf) =>
+    e ? { motivo: e.motivo ?? null, createdAt: e.createdAt ?? null, createdByName: await nameOf(e.createdBy) } : null;
+
+  function nameResolver() {
+    const cache = new Map();
+    return (userId) => {
+      if (!userId || !profilesRepo) return Promise.resolve(null);
+      if (!cache.has(userId)) cache.set(userId, profilesRepo.findById(userId).then((p) => p?.nombre ?? null));
+      return cache.get(userId);
+    };
+  }
+
   async function list(access, { sede, cargo, q } = {}) {
     if (sede !== undefined && !canAccessSede(access, sede)) {
       throw createHttpError(403, "No tienes acceso a esta sede.", "FORBIDDEN_SEDE");
@@ -67,8 +85,46 @@ export function createEmpleadosService({
         (row) => fold(row.nombre).includes(needle) || (digits !== "" && row.cedula.includes(digits)),
       );
     }
+    const active = exclusionsRepo ? await exclusionsRepo.listActive() : [];
+    const byCedula = new Map(active.map((e) => [e.cedula, e]));
+    const nameOf = nameResolver();
+    // Frozen like the cached rows: callers share these objects and must not be able to change them.
+    data = Object.freeze(
+      await Promise.all(
+        data.map(async (row) => {
+          const exclusion = byCedula.get(row.cedula) ?? null;
+          return Object.freeze({ ...row, excluidoDeCaja: exclusion !== null, exclusion: Object.freeze(await toExclusionDto(exclusion, nameOf)) });
+        }),
+      ),
+    );
     return { data, total: data.length, actualizado };
   }
 
-  return { list };
+  /**
+   * Marks / unmarks an active employee as "solo surtidor" (not scheduled at the register). Admin anywhere; a planner
+   * only for employees of their sedes. Idempotent: the same state again is a no-op that keeps the existing row.
+   */
+  async function setExclusion(access, user, cedulaInput, { excluido, motivo }) {
+    if (!access || !["admin", "planner"].includes(access.role)) {
+      throw createHttpError(403, "No tienes permisos para realizar esta acción.", "FORBIDDEN_ROLE");
+    }
+    const cedula = normalizeCedula(cedulaInput);
+    const { rows } = await getDirectory();
+    const employee = rows.find((r) => r.cedula === cedula);
+    if (!employee) throw createHttpError(404, "Empleado no encontrado.", "EMPLEADO_NOT_FOUND");
+    if (!canAccessSede(access, employee.sedeId)) {
+      throw createHttpError(403, "No tienes acceso a esta sede.", "FORBIDDEN_SEDE");
+    }
+
+    const nameOf = nameResolver();
+    if (!excluido) {
+      await exclusionsRepo.revoke({ cedula, userId: user.id });
+      return { cedula, excluidoDeCaja: false, exclusion: null };
+    }
+    const existing = (await exclusionsRepo.listActive()).find((e) => e.cedula === cedula);
+    const row = existing ?? (await exclusionsRepo.create({ cedula, sedeId: employee.sedeId ?? null, motivo: motivo ?? null, userId: user.id }));
+    return { cedula, excluidoDeCaja: true, exclusion: await toExclusionDto(row, nameOf) };
+  }
+
+  return { list, setExclusion };
 }
