@@ -130,6 +130,36 @@ export function createHorariosRepo(client) {
       return data ?? [];
     },
 
+    /** PUBLICADO schedules (any sede) whose Monday is within [from, to]: [{ id, week_start }]. Public lookup only. */
+    async listPublishedSchedulesInRange({ from, to }) {
+      const { data, error } = await client
+        .from("sede_week_schedules")
+        .select("id, week_start")
+        .eq("state", "PUBLICADO")
+        .gte("week_start", from)
+        .lte("week_start", to)
+        .order("week_start", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+
+    /**
+     * Shifts of ONE cedula inside the given schedules. Public lookup: the column list is deliberately short
+     * (no observacion, cargo, audit or id columns) so nothing sensitive can leak through this path.
+     */
+    async listShiftsByCedulaInSchedules({ cedula, scheduleIds }) {
+      if (!scheduleIds.length) return [];
+      return fetchAll(() =>
+        client
+          .from("shifts")
+          .select("schedule_id, fecha, tipo, start_time, end_time, break_minutes, lunch_start")
+          .eq("cedula", cedula)
+          .in("schedule_id", scheduleIds)
+          .order("fecha", { ascending: true })
+          .order("id", { ascending: true }),
+      );
+    },
+
     /** Distinct cedulas per schedule in ONE grouped rpc (migration 009): { [scheduleId]: n }. */
     async countPeople(scheduleIds) {
       if (!scheduleIds.length) return {};

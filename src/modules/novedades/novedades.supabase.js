@@ -78,6 +78,24 @@ export function createNovedadesRepo(client) {
       }
     },
 
+    /**
+     * Public lookup: non-cancelled novedades of ONE cedula overlapping [desde, hasta], only tipo and dates.
+     * Never selects observacion, detalles, file paths or audit columns.
+     */
+    async listPublicByCedula({ cedula, desde, hasta, limit = 200 }) {
+      return unwrap(
+        await client
+          .from(TABLE)
+          .select("tipo, fecha_inicio, fecha_fin")
+          .eq("cedula", cedula)
+          .eq("anulada", false)
+          .lte("fecha_inicio", hasta)
+          .gte("fecha_fin", desde)
+          .order("fecha_inicio", { ascending: true })
+          .limit(limit),
+      );
+    },
+
     async insert(row) {
       return unwrap(await client.from(TABLE).insert(row).select().single());
     },

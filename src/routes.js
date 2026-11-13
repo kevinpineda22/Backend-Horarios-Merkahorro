@@ -23,6 +23,8 @@ import { createHorariosRepo } from "./modules/horarios/horarios.supabase.js";
 import { createPayrollRouter } from "./modules/horarios/payroll.routes.js";
 import { createPayrollService } from "./modules/horarios/payroll.service.js";
 import { createPayrollRepo } from "./modules/horarios/payroll.supabase.js";
+import { createPublicScheduleRouter } from "./modules/publicSchedule/publicSchedule.routes.js";
+import { createPublicScheduleService } from "./modules/publicSchedule/publicSchedule.service.js";
 import { getPool } from "./shared/db/pg.js";
 
 /**
@@ -66,6 +68,14 @@ const empleadosService = createEmpleadosService({
 
 export default createRoutes({
   modules: {
+    // PUBLIC (no authenticate): employees look up their published shifts by cedula. Rate limited, minimal projection.
+    "/public/horarios": createPublicScheduleRouter({
+      service: createPublicScheduleService({
+        empleadosService,
+        horariosRepo: createHorariosRepo(lazyClient),
+        novedadesRepo: createNovedadesRepo(lazyClient),
+      }),
+    }),
     "/novedades": createNovedadesRouter({
       authenticate,
       accessRepo,

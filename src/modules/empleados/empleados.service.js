@@ -126,5 +126,15 @@ export function createEmpleadosService({
     return { cedula, excluidoDeCaja: true, exclusion: await toExclusionDto(row, nameOf) };
   }
 
-  return { list, setExclusion };
+  /**
+   * The ACTIVE directory row of a cedula, or null (unknown and inactive are indistinguishable: the directory only
+   * holds active rows). No access scoping: only for the public schedule lookup, which exposes a minimal projection.
+   */
+  async function findActiveByCedula(cedulaInput) {
+    const cedula = normalizeCedula(cedulaInput);
+    const { rows } = await getDirectory();
+    return rows.find((r) => r.cedula === cedula) ?? null;
+  }
+
+  return { list, setExclusion, findActiveByCedula };
 }
