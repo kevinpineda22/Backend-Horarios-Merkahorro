@@ -21,29 +21,33 @@ function fakeClient(data) {
   return { log, from: (t) => (log.push(["from", t]), q) };
 }
 
-test("listPublishedSchedulesInRange filters state PUBLICADO and the week range", async () => {
-  const c = fakeClient([{ id: "s1", week_start: "2026-11-09" }]);
-  const rows = await createHorariosRepo(c).listPublishedSchedulesInRange({ from: "2026-10-12", to: "2027-01-04" });
+test("listShiftsByCedulaInRange filters by cedula and fecha window and selects no sensitive column", async () => {
+  const c = fakeClient([{ schedule_id: "s1" }]);
+  const rows = await createHorariosRepo(c).listShiftsByCedulaInRange({ cedula: "123456", from: "2026-10-12", to: "2027-01-10" });
   assert.equal(rows.length, 1);
+  const cols = c.log.find(([m]) => m === "select")[1].split(",").map((s) => s.trim());
+  for (const banned of ["observacion", "cargo", "updated_by", "created_by", "cedula", "id"]) assert.ok(!cols.includes(banned), banned);
+  assert.ok(cols.includes("schedule_id"));
   assert.deepEqual(c.log.filter(([m]) => ["eq", "gte", "lte"].includes(m)), [
-    ["eq", "state", "PUBLICADO"],
-    ["gte", "week_start", "2026-10-12"],
-    ["lte", "week_start", "2027-01-04"],
+    ["eq", "cedula", "123456"],
+    ["gte", "fecha", "2026-10-12"],
+    ["lte", "fecha", "2027-01-10"],
   ]);
+  assert.ok(!c.log.some(([m]) => m === "in"), "no id list in the shifts query");
 });
 
-test("listShiftsByCedulaInSchedules selects no sensitive column and skips the query without schedules", async () => {
-  const c = fakeClient([]);
+test("listPublishedSchedulesByIds filters state PUBLICADO in the query and skips it without ids", async () => {
+  const c = fakeClient([{ id: "s1", week_start: "2026-11-09" }]);
   const repo = createHorariosRepo(c);
-  assert.deepEqual(await repo.listShiftsByCedulaInSchedules({ cedula: "123456", scheduleIds: [] }), []);
+  assert.deepEqual(await repo.listPublishedSchedulesByIds([]), []);
   assert.equal(c.log.length, 0);
-  await repo.listShiftsByCedulaInSchedules({ cedula: "123456", scheduleIds: ["s1"] });
-  const select = c.log.find(([m]) => m === "select")[1];
-  for (const banned of ["observacion", "cargo", "updated_by", "created_by", "cedula", "id,"]) {
-    assert.ok(!select.split(",").map((s) => s.trim()).includes(banned.replace(",", "")), banned);
-  }
-  assert.ok(c.log.some(([m, col, v]) => m === "eq" && col === "cedula" && v === "123456"));
-  assert.ok(c.log.some(([m, col]) => m === "in" && col === "schedule_id"));
+  const rows = await repo.listPublishedSchedulesByIds(["s1", "s2"]);
+  assert.equal(rows.length, 1);
+  assert.deepEqual(c.log.filter(([m]) => ["from", "eq", "in"].includes(m)), [
+    ["from", "sede_week_schedules"],
+    ["eq", "state", "PUBLICADO"],
+    ["in", "id", ["s1", "s2"]],
+  ]);
 });
 
 test("novedades listPublicByCedula selects only tipo and dates and excludes cancelled rows", async () => {
@@ -53,20 +57,58 @@ test("novedades listPublicByCedula selects only tipo and dates and excludes canc
   assert.ok(c.log.some(([m, col, v]) => m === "eq" && col === "anulada" && v === false));
 });
 
-test("rate limiter: fixed window resets after windowMs and prunes expired keys", () => {
+/** Drives the limiter with a fake req/res; `status` is emitted on res 'finish' like Express would. */
+function limiterHarness(opts) {
   let t = 0;
-  const limiter = createRateLimiter({ max: 2, windowMs: 1000, now: () => t, maxKeys: 1 });
-  const hit = (ip) => {
+  const limiter = createRateLimiter({ ...opts, now: () => t });
+  const hit = (ip, status = 200) => {
     let err = null;
-    limiter({ headers: { "x-forwarded-for": ip }, socket: {} }, { set() {} }, (e) => (err = e ?? null));
+    let onFinish = () => {};
+    const res = { statusCode: status, set() {}, once: (_event, fn) => (onFinish = fn) };
+    limiter({ headers: { "x-forwarded-for": ip }, socket: {} }, res, (e) => (err = e ?? null));
+    if (!err) onFinish();
     return err;
   };
-  assert.equal(hit("a"), null);
-  assert.equal(hit("a"), null);
-  assert.equal(hit("a").statusCode, 429);
-  t = 1001;
-  assert.equal(hit("a"), null);
-  assert.equal(hit("b"), null); // triggers prune (maxKeys reached) without breaking
+  return { hit, advance: (ms) => (t += ms) };
+}
+
+test("rate limiter: 200s do not consume quota", () => {
+  const { hit } = limiterHarness({ max: 2 });
+  for (let i = 0; i < 50; i++) assert.equal(hit("a", 200), null);
+});
+
+test("rate limiter: 400 and 404 count; the request after max failures gets 429", () => {
+  const { hit } = limiterHarness({ max: 3 });
+  assert.equal(hit("a", 404), null);
+  assert.equal(hit("a", 400), null);
+  assert.equal(hit("a", 404), null);
+  assert.equal(hit("a", 200).statusCode, 429); // over the limit: even a valid lookup is blocked
+  assert.equal(hit("b", 200), null); // other IPs are unaffected
+});
+
+test("rate limiter: default config blocks after 20 failures and the window resets", () => {
+  const { hit, advance } = limiterHarness({});
+  for (let i = 0; i < 20; i++) assert.equal(hit("a", 404), null);
+  assert.equal(hit("a", 404).statusCode, 429);
+  advance(5 * 60 * 1000 + 1);
+  assert.equal(hit("a", 200), null);
+});
+
+test("rate limiter: the map stays bounded (prunes expired, then evicts the oldest)", () => {
+  const { hit, advance } = limiterHarness({ max: 2, windowMs: 1000, maxKeys: 3 });
+  for (const ip of ["a", "b", "c"]) hit(ip, 404);
+  advance(1001); // a, b, c are expired
+  hit("d", 404); // map full -> expired entries pruned
+  hit("e", 404);
+  hit("f", 404); // d, e, f live
+  hit("d", 404);
+  hit("d", 404); // d reached max (2)
+  assert.equal(hit("d", 200).statusCode, 429);
+  hit("g", 404); // full of live entries -> the oldest (d) is evicted
+  assert.equal(hit("d", 200), null, "d was evicted, so it starts from zero");
+  // e and f survive: failing again does not throw and the limit still applies to live keys
+  hit("f", 404);
+  assert.equal(hit("f", 200).statusCode, 429);
 });
 
 test("empleados.findActiveByCedula normalizes the input and only knows active rows", async () => {

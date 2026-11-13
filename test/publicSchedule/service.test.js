@@ -16,10 +16,11 @@ const call = (service, cedula = "123456") => service.consulta({ cedula });
 test("returns the employee header without cedula, restrictions or ids", async () => {
   const { service } = build({ shifts: [shiftRow()] });
   const { data } = await call(service);
-  assert.deepEqual(data.empleado, { nombre: "Ana Perez", sede: "Copacabana", cargo: "Cajera" });
+  assert.deepEqual(data.empleado, { nombre: "Ana Perez", sede: "Copacabana" });
   const dump = JSON.stringify(data);
   assert.ok(!dump.includes("123456"), "cedula must not be echoed");
   assert.ok(!dump.includes("secret restriction"));
+  assert.ok(!dump.includes("Cajera"), "cargo must not be exposed");
 });
 
 test("maps a worked day: HH:MM times, hours net of break, lunch and break minutes", async () => {
@@ -83,18 +84,17 @@ test("queries only the published window: 4 weeks back through 8 ahead of the Bog
   await call(service);
   assert.equal(WEEKS_BACK, 4);
   assert.equal(WEEKS_AHEAD, 8);
-  const range = calls.find(([n]) => n === "listPublishedSchedulesInRange")[1];
-  assert.deepEqual(range, { from: "2026-10-12", to: "2027-01-04" });
-  const shifts = calls.find(([n]) => n === "listShiftsByCedulaInSchedules")[1];
-  assert.equal(shifts.cedula, "123456");
-  assert.deepEqual(shifts.scheduleIds, [SCHED_A, SCHED_B]);
+  const query = calls.find(([n]) => n === "listShiftsByCedulaInRange")[1];
+  assert.deepEqual(query, { cedula: "123456", from: "2026-10-12", to: "2027-01-10" });
+  const ids = calls.find(([n]) => n === "listPublishedSchedulesByIds")[1];
+  assert.deepEqual(ids, [SCHED_A]); // distinct schedule ids of the employee's own shifts only
 });
 
 test("the Monday is computed on the Bogota clock, not UTC (Sunday 21:00 Bogota is already Monday UTC)", async () => {
   const f = fakes({ shifts: [shiftRow()] });
   const service = createPublicScheduleService({ ...f, now: () => new Date("2026-11-16T02:00:00Z") }); // Sun 2026-11-15 21:00 Bogota
   await service.consulta({ cedula: "123456" });
-  assert.equal(f.calls.find(([n]) => n === "listPublishedSchedulesInRange")[1].from, "2026-10-12");
+  assert.equal(f.calls.find(([n]) => n === "listShiftsByCedulaInRange")[1].from, "2026-10-12");
 });
 
 test("shifts of schedules that are not in the published list are ignored (drafts never leak)", async () => {
@@ -131,11 +131,41 @@ test("novedades expose only tipo and dates, never observation, details, files or
   for (const leak of ["private note", "a/b.pdf", "created_by", "detalles"]) assert.ok(!dump.includes(leak), leak);
 });
 
-test("an active employee with no published shifts gets an empty list (and no novedades read)", async () => {
+test("health tipos (Incapacidades, Licencias) are masked as Ausencia justificada; others keep their label", async () => {
+  const day = { fecha_inicio: "2026-11-20", fecha_fin: "2026-11-21" };
+  const { service } = build({
+    shifts: [shiftRow()],
+    novedades: [
+      { tipo: "Incapacidades", subtipo: "ARL", ...day },
+      { tipo: "Licencias", ...day },
+      { tipo: "Vacaciones", ...day },
+      { tipo: "Permisos", ...day },
+      { tipo: "Permisos académicos", ...day },
+      { tipo: "Día de la Familia", ...day },
+      { tipo: "Desconocido", ...day },
+    ],
+  });
+  const { data } = await call(service);
+  assert.deepEqual(
+    data.novedades.map((n) => n.tipo),
+    ["Ausencia justificada", "Ausencia justificada", "Vacaciones", "Permisos", "Permisos académicos", "Día de la Familia", "Novedad"],
+  );
+  const dump = JSON.stringify(data);
+  assert.ok(!dump.includes("Incapacidades") && !dump.includes("Licencias") && !dump.includes("ARL"));
+});
+
+test("an active employee with no shifts gets an empty list (no schedule or novedades reads)", async () => {
   const { service, calls } = build({ shifts: [] });
   const { data } = await call(service);
   assert.deepEqual(data.semanas, []);
   assert.deepEqual(data.novedades, []);
+  assert.ok(!calls.some(([n]) => n === "listPublicByCedula" || n === "listPublishedSchedulesByIds"));
+});
+
+test("shifts that only exist in unpublished schedules yield no weeks and no novedades read", async () => {
+  const { service, calls } = build({ schedules: [], shifts: [shiftRow()] });
+  const { data } = await call(service);
+  assert.deepEqual(data.semanas, []);
   assert.ok(!calls.some(([n]) => n === "listPublicByCedula"));
 });
 

@@ -6,7 +6,7 @@ import { consultaBodySchema } from "./publicSchedule.schemas.js";
 
 /**
  * /api/public/horarios: PUBLIC (no authenticate, no Supabase token) schedule lookup for employees.
- * Rate limiter first so malformed and brute-force attempts are counted too; then body validation.
+ * Rate limiter first: it rejects clients over the failure quota and counts 400/404 responses (not 200s); then body validation.
  * POST (not GET) keeps the cedula out of URLs and access logs.
  */
 export function createPublicScheduleRouter({ service, rateLimit = createRateLimiter() }) {

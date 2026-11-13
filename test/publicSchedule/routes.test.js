@@ -64,21 +64,29 @@ test("404 with the generic shape for an unknown or inactive employee", () =>
     { employee: null },
   ));
 
-test("429 with Spanish message and Retry-After after the per-IP limit; other IPs are unaffected", () =>
+test("429 with Spanish message and Retry-After after the per-IP failure limit; other IPs are unaffected", () =>
   withApp(
     async ({ post }) => {
-      for (let i = 0; i < 3; i++) assert.equal((await post({ cedula: "123456" }, { "x-forwarded-for": "1.1.1.1" })).status, 200);
-      const res = await post({ cedula: "123456" }, { "x-forwarded-for": "1.1.1.1" });
+      for (let i = 0; i < 3; i++) assert.equal((await post({ cedula: "999999" }, { "x-forwarded-for": "1.1.1.1" })).status, 404);
+      const res = await post({ cedula: "999999" }, { "x-forwarded-for": "1.1.1.1" });
       assert.equal(res.status, 429);
       assert.equal(res.json.code, "RATE_LIMITED");
       assert.match(res.json.error, /Demasiados intentos/);
       assert.ok(Number(res.headers.get("retry-after")) >= 1);
-      assert.equal((await post({ cedula: "123456" }, { "x-forwarded-for": "2.2.2.2" })).status, 200);
+      assert.equal((await post({ cedula: "999999" }, { "x-forwarded-for": "2.2.2.2" })).status, 404);
     },
-    { limiter: createRateLimiter({ max: 3 }) },
+    { limiter: createRateLimiter({ max: 3 }), employee: null },
   ));
 
-test("invalid requests also consume the rate limit", () =>
+test("successful lookups never consume the rate limit", () =>
+  withApp(
+    async ({ post }) => {
+      for (let i = 0; i < 10; i++) assert.equal((await post({ cedula: "123456" })).status, 200);
+    },
+    { limiter: createRateLimiter({ max: 2 }) },
+  ));
+
+test("invalid requests (400) consume the rate limit", () =>
   withApp(
     async ({ post }) => {
       assert.equal((await post({ cedula: "x" })).status, 400);

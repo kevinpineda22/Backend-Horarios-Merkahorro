@@ -36,19 +36,18 @@ export function fakes({ employee = EMPLOYEE, schedules, shifts = [], novedades =
       return employee && employee.cedula === cedula ? employee : null;
     },
   };
+  const published = schedules ?? [
+    { id: SCHED_A, week_start: "2026-11-09" },
+    { id: SCHED_B, week_start: "2026-11-16" },
+  ];
   const horariosRepo = {
-    async listPublishedSchedulesInRange(args) {
-      calls.push(["listPublishedSchedulesInRange", args]);
-      return (
-        schedules ?? [
-          { id: SCHED_A, week_start: "2026-11-09" },
-          { id: SCHED_B, week_start: "2026-11-16" },
-        ]
-      );
+    async listShiftsByCedulaInRange(args) {
+      calls.push(["listShiftsByCedulaInRange", args]);
+      return shifts; // every state: the service must keep only published schedules
     },
-    async listShiftsByCedulaInSchedules(args) {
-      calls.push(["listShiftsByCedulaInSchedules", args]);
-      return shifts.filter((s) => args.scheduleIds.includes(s.schedule_id));
+    async listPublishedSchedulesByIds(ids) {
+      calls.push(["listPublishedSchedulesByIds", ids]);
+      return published.filter((s) => ids.includes(s.id));
     },
   };
   const novedadesRepo = {

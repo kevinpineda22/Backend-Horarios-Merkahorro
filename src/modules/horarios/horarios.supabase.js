@@ -130,34 +130,38 @@ export function createHorariosRepo(client) {
       return data ?? [];
     },
 
-    /** PUBLICADO schedules (any sede) whose Monday is within [from, to]: [{ id, week_start }]. Public lookup only. */
-    async listPublishedSchedulesInRange({ from, to }) {
-      const { data, error } = await client
-        .from("sede_week_schedules")
-        .select("id, week_start")
-        .eq("state", "PUBLICADO")
-        .gte("week_start", from)
-        .lte("week_start", to)
-        .order("week_start", { ascending: true });
-      if (error) throw error;
-      return data ?? [];
-    },
-
     /**
-     * Shifts of ONE cedula inside the given schedules. Public lookup: the column list is deliberately short
-     * (no observacion, cargo, audit or id columns) so nothing sensitive can leak through this path.
+     * Shifts of ONE cedula whose date is within [from, to], across every sede and state. Public lookup step 1:
+     * the result is small (one employee, ~13 weeks) and yields the schedule ids to check for publication.
+     * The column list is deliberately short (no observacion, cargo, audit or id columns).
      */
-    async listShiftsByCedulaInSchedules({ cedula, scheduleIds }) {
-      if (!scheduleIds.length) return [];
+    async listShiftsByCedulaInRange({ cedula, from, to }) {
       return fetchAll(() =>
         client
           .from("shifts")
           .select("schedule_id, fecha, tipo, start_time, end_time, break_minutes, lunch_start")
           .eq("cedula", cedula)
-          .in("schedule_id", scheduleIds)
+          .gte("fecha", from)
+          .lte("fecha", to)
           .order("fecha", { ascending: true })
           .order("id", { ascending: true }),
       );
+    },
+
+    /**
+     * Public lookup step 2: of the given schedule ids, only the PUBLICADO ones: [{ id, week_start }].
+     * The published-only filter runs in the database. The id list is tiny (distinct weeks of one employee),
+     * so it never approaches the PostgREST URL length limit.
+     */
+    async listPublishedSchedulesByIds(scheduleIds) {
+      if (!scheduleIds.length) return [];
+      const { data, error } = await client
+        .from("sede_week_schedules")
+        .select("id, week_start")
+        .eq("state", "PUBLICADO")
+        .in("id", scheduleIds);
+      if (error) throw error;
+      return data ?? [];
     },
 
     /** Distinct cedulas per schedule in ONE grouped rpc (migration 009): { [scheduleId]: n }. */

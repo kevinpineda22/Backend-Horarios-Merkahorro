@@ -14,7 +14,16 @@ const notFound = () => createHttpError(404, NOT_FOUND_MESSAGE, "NOT_FOUND");
 const toHHMM = (value) => (typeof value === "string" ? value.slice(0, 5) : null);
 const round2 = (n) => Math.round(n * 100) / 100;
 
-/** One shift row -> the minimal public day. Observacion, cargo, ids and audit columns never get here. */
+// Incapacidades (general and ARL/work accident) and Licencias reveal health data: publicly they are one neutral label.
+const JUSTIFIED_ABSENCE_LABEL = "Ausencia justificada";
+const HEALTH_TIPOS = new Set(["Incapacidades", "Licencias"]);
+
+function publicNovedadLabel(tipo) {
+  if (HEALTH_TIPOS.has(tipo)) return JUSTIFIED_ABSENCE_LABEL;
+  return NOVEDAD_TYPES.includes(tipo) ? tipo : "Novedad";
+}
+
+/** One shift row -> the minimal public day. Observacion, ids and audit columns never get here. */
 function toDay(row) {
   const worked = row.tipo === "TRABAJO";
   const entrada = worked ? toHHMM(row.start_time) : null;
@@ -54,15 +63,18 @@ export function createPublicScheduleService({ empleadosService, horariosRepo, no
     const lastMonday = addDays(currentMonday, WEEKS_AHEAD * 7);
     const windowEnd = addDays(lastMonday, 6);
 
-    const schedules = await horariosRepo.listPublishedSchedulesInRange({ from, to: lastMonday });
+    // 1) the employee's own shifts in the window (small), 2) only the published schedules among those ids.
+    const candidateRows = await horariosRepo.listShiftsByCedulaInRange({ cedula, from, to: windowEnd });
+    const candidateIds = [...new Set(candidateRows.map((r) => r.schedule_id))];
+    const schedules = candidateIds.length ? await horariosRepo.listPublishedSchedulesByIds(candidateIds) : [];
     const weekOf = new Map(schedules.map((s) => [s.id, s.week_start]));
-    const rows = await horariosRepo.listShiftsByCedulaInSchedules({ cedula, scheduleIds: [...weekOf.keys()] });
+    const rows = candidateRows.filter((r) => weekOf.has(r.schedule_id));
 
     // Group by the schedule's Monday: the same week may hold rows from several sedes.
     const byWeek = new Map();
     for (const row of rows) {
       const weekStart = weekOf.get(row.schedule_id);
-      if (!weekStart) continue; // defensive: not a published schedule of the window
+      if (!weekStart) continue; // defensive: rows are already filtered to published schedules
       if (!byWeek.has(weekStart)) byWeek.set(weekStart, []);
       byWeek.get(weekStart).push(toDay(row));
     }
@@ -78,17 +90,17 @@ export function createPublicScheduleService({ empleadosService, horariosRepo, no
         };
       });
 
-    // Only tipo + dates leave the service; the label is the canonical human tipo ("Incapacidades", "Vacaciones"...).
+    // Only a label + dates leave the service. Health-related tipos are masked server-side so the raw type never leaves.
     const rawNovedades = semanas.length ? await novedadesRepo.listPublicByCedula({ cedula, desde: from, hasta: windowEnd }) : [];
     const novedades = rawNovedades.map((n) => ({
-      tipo: NOVEDAD_TYPES.includes(n.tipo) ? n.tipo : "Novedad",
+      tipo: publicNovedadLabel(n.tipo),
       fechaInicio: n.fecha_inicio,
       fechaFin: n.fecha_fin,
     }));
 
     return {
       data: {
-        empleado: { nombre: employee.nombre, sede: employee.sedeNombre ?? null, cargo: employee.cargo || null },
+        empleado: { nombre: employee.nombre, sede: employee.sedeNombre ?? null },
         semanas,
         novedades,
       },
