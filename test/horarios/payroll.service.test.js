@@ -35,6 +35,7 @@ const ALL_PUBLISHED = CAT.flatMap((s) => [published(s.sede_id, FROM), published(
 
 function build({
   shifts = [],
+  drafts = [],
   schedules = ALL_PUBLISHED,
   sedes = CAT,
   directory = [],
@@ -42,9 +43,10 @@ function build({
   paidCut = null,
   now = NOW,
 } = {}) {
-  const calls = { shifts: [], schedules: [], dir: [] };
+  const calls = { shifts: [], drafts: [], schedules: [], dir: [] };
   const repo = {
     async listShiftsInRange(args) { calls.shifts.push(args); return shifts; },
+    async listDraftWorkShifts(args) { calls.drafts.push(args); return drafts; },
     async listSchedulesInRange(args) { calls.schedules.push(args); return schedules; },
     async listSedes() { return sedes; },
     async findPaidCutOverlapping() { return paidCut; },
@@ -227,32 +229,41 @@ test("planner sees only rows attributed to their sedes but hours still count acr
   assert.deepEqual(filtered.rows.map((x) => x.cedula), ["10020002"]);
 });
 
-test("warning UNPUBLISHED_WEEKS lists BORRADOR sede-weeks that have work in accessible sedes", async () => {
+test("warning UNPUBLISHED_WEEKS lists BORRADOR sede-weeks with work in accessible sedes; their hours are excluded", async () => {
   const schedules = [
     published("copacabana", FROM),
     { sede_id: "copacabana", week_start: "2026-11-02", state: "BORRADOR" },
     { sede_id: "bello", week_start: FROM, state: "BORRADOR" },
     published("bello", "2026-11-02"),
-    { sede_id: "sinCodigo", week_start: FROM, state: "BORRADOR" }, // no shifts there
+    { sede_id: "sinCodigo", week_start: FROM, state: "BORRADOR" }, // draft without TRABAJO shifts: not listed
     published("sinCodigo", "2026-11-02"),
   ];
-  const shifts = [
-    sh("10010001", "copacabana", "2026-11-03", "08:00", "12:00"),
-    sh("10020002", "bello", "2026-10-27", "08:00", "12:00", { code: "011" }),
+  // The repo only returns published shifts; the draft ones come from listDraftWorkShifts.
+  const shifts = [sh("10010001", "copacabana", "2026-10-28", "08:00", "12:00")];
+  const drafts = [
+    { sede_id: "copacabana", fecha: "2026-11-03" },
+    { sede_id: "copacabana", fecha: "2026-11-04" },
+    { sede_id: "bello", fecha: "2026-10-27" },
   ];
-  const { service } = build({ shifts, schedules, directory: [emp("10010001", "copacabana"), emp("10020002", "bello")] });
-  assert.deepEqual(warn(await report(service), "UNPUBLISHED_WEEKS").items, [
+  const { service, calls } = build({ shifts, drafts, schedules, directory: [emp("10010001", "copacabana"), emp("10020002", "bello")] });
+  const full = await report(service);
+  assert.deepEqual(warn(full, "UNPUBLISHED_WEEKS").items, [
     { sedeId: "bello", weekStart: FROM },
     { sedeId: "copacabana", weekStart: "2026-11-02" },
   ]);
+  assert.deepEqual(calls.drafts[0], { from: FROM, to: TO });
   assert.deepEqual(warn(await report(service, PLANNER), "UNPUBLISHED_WEEKS").items, [
     { sedeId: "copacabana", weekStart: "2026-11-02" },
   ]);
   assert.deepEqual(warn(await report(service, ADMIN, { sedeId: "bello" }), "UNPUBLISHED_WEEKS").items, [
     { sedeId: "bello", weekStart: FROM },
   ]);
-  const hours = (await report(service)).rows.find((r) => r.cedula === "10010001").totals.workedHours;
-  assert.equal(hours, 4, "draft hours are counted (A1)");
+  assert.equal(full.rows.find((r) => r.cedula === "10010001").totals.workedHours, 4, "only the published shift counts");
+});
+
+test("no UNPUBLISHED_WEEKS warning when every week with work is published", async () => {
+  const { service } = build({ shifts: [sh("10010001", "copacabana", "2026-10-28", "08:00", "12:00")], directory: [emp("10010001", "copacabana")] });
+  assert.equal(warn(await report(service), "UNPUBLISHED_WEEKS"), undefined);
 });
 
 test("warning SEDE_WEEK_WITHOUT_SCHEDULE flags active sede-weeks with no schedule (partial data)", async () => {

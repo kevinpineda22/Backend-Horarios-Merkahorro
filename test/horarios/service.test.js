@@ -31,7 +31,7 @@ const dbRow = (r, sede = "copacabana", schedule = SCHED) => ({
   observacion: r.observacion ?? null, updated_by: ADMIN, updated_at: "t1",
 });
 
-function fakes({ schedule = null, rows = [], neighbors = [], sedes = ["copacabana", "las-vegas"] } = {}) {
+function fakes({ schedule = null, rows = [], neighbors = [], sedes = ["copacabana", "las-vegas"], paidCut = null } = {}) {
   const state = { schedule, rows: [...rows] };
   const calls = [];
   const repo = {
@@ -39,6 +39,7 @@ function fakes({ schedule = null, rows = [], neighbors = [], sedes = ["copacaban
     state,
     async findSede(id) { calls.push(["findSede", id]); return sedes.includes(id) ? { sede_id: id, siesa_code: "001" } : null; },
     async findSchedule() { calls.push(["findSchedule"]); return state.schedule; },
+    async findPaidCutOverlapping(from, to) { calls.push(["findPaidCutOverlapping", from, to]); return paidCut; },
     async listShifts() { calls.push(["listShifts"]); return state.rows; },
     async listShiftsByCedulas(args) {
       calls.push(["listShiftsByCedulas", args]);
@@ -144,6 +145,32 @@ test("save normalizes the payload (default break), sends the actor and returns s
   assert.equal(out.schedule.updatedByName, "Paula Planner");
   assert.equal(out.shifts.length, 1);
   assert.ok(Array.isArray(out.warnings));
+});
+
+const PAID = { id: 12, from: "2031-01-06", to: "2031-01-19" };
+const saveBody = { expectedVersion: 2, cedulas: ["11111111"], shifts: [work("11111111", W, "08:00", "17:00")] };
+
+test("save on a PUBLICADO week inside a PAGADO payroll cut is 409 PAYROLL_CUT_PAID and nothing is written", async () => {
+  const { service, repo } = fakes({ schedule: stored({ state: "PUBLICADO", version: 2 }), paidCut: PAID });
+  await assert.rejects(service.save(access.planner, user(PLANNER), "copacabana", W, saveBody), (e) =>
+    code(409, "PAYROLL_CUT_PAID")(e) &&
+    e.message === "No puedes editar: esta semana ya está en un corte de nómina pagado." &&
+    e.details.cut.id === 12);
+  assert.deepEqual(called(repo, "findPaidCutOverlapping")[0], ["findPaidCutOverlapping", W, "2031-01-12"]);
+  assert.equal(called(repo, "saveWeek").length, 0);
+});
+
+test("save on a PUBLICADO week without a paid cut still works", async () => {
+  const { service, repo } = fakes({ schedule: stored({ state: "PUBLICADO", version: 2 }) });
+  await service.save(access.planner, user(PLANNER), "copacabana", W, saveBody);
+  assert.equal(called(repo, "saveWeek").length, 1);
+});
+
+test("save on a BORRADOR week is allowed even when a paid cut overlaps (drafts are not in payroll)", async () => {
+  const { service, repo } = fakes({ schedule: stored({ state: "BORRADOR", version: 2 }), paidCut: PAID });
+  await service.save(access.planner, user(PLANNER), "copacabana", W, saveBody);
+  assert.equal(called(repo, "saveWeek").length, 1);
+  assert.equal(called(repo, "findPaidCutOverlapping").length, 0);
 });
 
 test("an invalid payload is a 400 INVALID_SHIFTS and nothing is written", async () => {

@@ -225,8 +225,10 @@ export function createPayrollService({
   const weeks = periodWeeks(from, to);
   const { sedeId } = query;
 
-  const [shiftRows, schedules, sedes, directory, paidCut] = await Promise.all([
+  const [shiftRows, draftShifts, schedules, sedes, directory, paidCut] = await Promise.all([
+    // Published schedules only (the repo filters in the database); the day before `from` covers midnight spill.
     repo.listShiftsInRange({ from: addDays(from, -1), to }),
+    repo.listDraftWorkShifts ? repo.listDraftWorkShifts({ from, to }) : [],
     repo.listSchedulesInRange({ fromWeek: from, toWeek: weeks[weeks.length - 1].weekStart }),
     repo.listSedes(),
     loadDirectory(),
@@ -288,17 +290,14 @@ export function createPayrollService({
   // so a zero-hour row can also mean "not scheduled here".
   push("PARTIAL_COVERAGE");
 
-  // Sede-weeks that have work in the period, from the shifts themselves.
-  // Accepted (S1): previous-day spill shifts of a BORRADOR previous week are counted in the hours
-  // but that week is not reported here, since it lies outside the period's weeks.
+  // Sede-weeks in BORRADOR that have work in the period. Their shifts are EXCLUDED from the report.
+  // Accepted (S1): a spill shift of a BORRADOR previous week is not counted either, and that week is not
+  // listed here because it lies outside the period's weeks.
   const scheduleState = new Map(schedules.map((s) => [`${s.sede_id}|${s.week_start}`, s.state]));
-  const worked = new Set(
-    shiftRows
-      .filter((s) => s.tipo === "TRABAJO" && s.fecha >= from && s.fecha <= to && inScope(s.sede_id))
-      .map((s) => `${s.sede_id}|${mondayOf(s.fecha)}`),
+  const draftKeys = new Set(
+    draftShifts.filter((s) => inScope(s.sede_id)).map((s) => `${s.sede_id}|${mondayOf(s.fecha)}`),
   );
-  const unpublished = [...worked]
-    .filter((k) => scheduleState.get(k) === "BORRADOR")
+  const unpublished = [...draftKeys]
     .map((k) => ({ sedeId: k.split("|")[0], weekStart: k.split("|")[1] }))
     .sort((a, b) => byText(a.sedeId, b.sedeId) || byText(a.weekStart, b.weekStart));
   if (unpublished.length) push("UNPUBLISHED_WEEKS", { items: unpublished });
@@ -337,7 +336,7 @@ export function createPayrollService({
     fingerprint: isAdmin && sedeId === undefined ? fingerprintOf(all, holidays.list) : null,
     permissions: { canSaveCut: isAdmin && !paidCut, canVoidCut: isAdmin },
   };
-  return { dto, all, directoryAvailable: directory.available };
+  return { dto, all, directoryAvailable: directory.available, unpublished };
   }
 
   return {
@@ -359,7 +358,7 @@ export function createPayrollService({
       const { from, to, fingerprint } = body;
       if (periodError(from, to)) throw invalidPeriod();
 
-      const { dto, all, directoryAvailable } = await compute(access, { from, to });
+      const { dto, all, directoryAvailable, unpublished } = await compute(access, { from, to });
       if (!directoryAvailable) {
         throw createHttpError(
           503,
@@ -370,6 +369,16 @@ export function createPayrollService({
       if (dto.paidCut) {
         const err = createHttpError(409, "Ya existe un corte pagado que se cruza con este periodo.", "PAYROLL_CUT_OVERLAP");
         err.details = { cut: dto.paidCut };
+        throw err;
+      }
+      if (unpublished.length) {
+        const list = unpublished.map((u) => `${u.sedeId} (semana del ${u.weekStart})`).join(", ");
+        const err = createHttpError(
+          409,
+          `No se puede guardar el corte: hay semanas en borrador en el periodo (${list}). Publícalas antes de guardar.`,
+          "UNPUBLISHED_WEEKS_IN_PERIOD",
+        );
+        err.details = { items: unpublished };
         throw err;
       }
       if (!fingerprint || fingerprint !== dto.fingerprint) {

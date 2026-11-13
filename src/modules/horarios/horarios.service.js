@@ -193,6 +193,16 @@ export function createHorariosService({ repo, profilesRepo }) {
         ...weekWarnings(ruleRows, weekStart, scope),
       ];
 
+      // A published week feeds payroll: once a paid cut covers it, editing is refused (same guard as unpublish).
+      if (current?.state === "PUBLICADO") {
+        const paidCut = await repo.findPaidCutOverlapping(weekStart, addDays(weekStart, 6));
+        if (paidCut) {
+          const err = createHttpError(409, "No puedes editar: esta semana ya está en un corte de nómina pagado.", "PAYROLL_CUT_PAID");
+          err.details = { cut: paidCut };
+          throw err;
+        }
+      }
+
       await repo.saveWeek({ sedeId, weekStart, expectedVersion, cedulas, shifts: normalized, actor: user.id });
 
       const nameOf = nameResolver();

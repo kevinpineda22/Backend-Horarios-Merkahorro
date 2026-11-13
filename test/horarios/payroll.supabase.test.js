@@ -36,12 +36,32 @@ test("listShiftsInRange reads every sede and tipo in [from, to], ordered by id, 
   assert.ok(has(log, "gte", "fecha", "2026-10-25"));
   assert.ok(has(log, "lte", "fecha", "2026-11-08"));
   assert.ok(has(log, "order", "id", { ascending: true }));
-  assert.equal(log.some((c) => c[0] === "eq" || c[0] === "in"), false, "no sede or tipo filter");
+  assert.equal(log.some((c) => (c[0] === "eq" && c[1] !== "sede_week_schedules.state") || c[0] === "in"), false, "no sede or tipo filter");
   assert.deepEqual(log.filter((c) => c[0] === "range"), [["range", 0, 999], ["range", 1000, 1999], ["range", 2000, 2999]]);
   const select = log.find((c) => c[0] === "select")[1];
   for (const col of ["sede_id", "siesa_code", "cedula", "fecha", "tipo", "start_time", "end_time", "break_minutes", "cargo"]) {
     assert.match(select, new RegExp(`\\b${col}\\b`));
   }
+});
+
+test("listShiftsInRange keeps only PUBLICADO schedules (inner embed filter, spill day included) and strips the embed", async () => {
+  const { log, client } = pagedFake(3);
+  const rows = await createPayrollRepo(client).listShiftsInRange({ from: "2026-10-25", to: "2026-11-08" });
+  assert.match(log.find((c) => c[0] === "select")[1], /sede_week_schedules!inner\(state\)/);
+  assert.ok(has(log, "eq", "sede_week_schedules.state", "PUBLICADO"));
+  assert.ok(has(log, "gte", "fecha", "2026-10-25"), "the range (with the from - 1 spill day) is untouched");
+  assert.equal(rows.every((r) => !("sede_week_schedules" in r)), true);
+});
+
+test("listDraftWorkShifts reads TRABAJO shifts of BORRADOR schedules in the period", async () => {
+  const { log, client } = pagedFake(2);
+  const rows = await createPayrollRepo(client).listDraftWorkShifts({ from: "2026-10-26", to: "2026-11-08" });
+  assert.equal(rows.length, 2);
+  assert.ok(has(log, "eq", "sede_week_schedules.state", "BORRADOR"));
+  assert.ok(has(log, "eq", "tipo", "TRABAJO"));
+  assert.ok(has(log, "gte", "fecha", "2026-10-26"));
+  assert.ok(has(log, "lte", "fecha", "2026-11-08"));
+  assert.match(log.find((c) => c[0] === "select")[1], /sede_id, fecha, sede_week_schedules!inner\(state\)/);
 });
 
 test("listShiftsInRange asks for one more page when the last page is exactly full", async () => {

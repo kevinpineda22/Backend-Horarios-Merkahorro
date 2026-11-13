@@ -55,12 +55,35 @@ async function rpc(client, name, args) {
  */
 export function createPayrollRepo(client) {
   return {
-    /** Every shift of every sede and tipo with fecha in [from, to]; paged so nothing is truncated. */
-    listShiftsInRange({ from, to }) {
+    /**
+     * Every shift of every sede and tipo with fecha in [from, to] whose schedule is PUBLICADO; paged so nothing
+     * is truncated. The filter is an inner embed over the (schedule_id, sede_id) FK, so BORRADOR shifts never
+     * reach payroll. The embed is stripped from the rows: callers get plain shift rows.
+     */
+    async listShiftsInRange({ from, to }) {
+      const rows = await fetchAll(() =>
+        client
+          .from("shifts")
+          .select(`${SHIFT_COLUMNS}, sede_week_schedules!inner(state)`)
+          .eq("sede_week_schedules.state", "PUBLICADO")
+          .gte("fecha", from)
+          .lte("fecha", to)
+          .order("id", { ascending: true }),
+      );
+      return rows.map(({ sede_week_schedules: _schedule, ...shift }) => shift);
+    },
+
+    /**
+     * TRABAJO shifts with fecha in [from, to] that belong to a BORRADOR schedule: only { sede_id, fecha }.
+     * Drafts are excluded from the report, so this tells which sede-weeks were left out.
+     */
+    listDraftWorkShifts({ from, to }) {
       return fetchAll(() =>
         client
           .from("shifts")
-          .select(SHIFT_COLUMNS)
+          .select("sede_id, fecha, sede_week_schedules!inner(state)")
+          .eq("sede_week_schedules.state", "BORRADOR")
+          .eq("tipo", "TRABAJO")
           .gte("fecha", from)
           .lte("fecha", to)
           .order("id", { ascending: true }),

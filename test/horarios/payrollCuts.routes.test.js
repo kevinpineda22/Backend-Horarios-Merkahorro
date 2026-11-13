@@ -165,6 +165,23 @@ test("service errors keep their status, stable code and details", () =>
     }),
   ));
 
+test("UNPUBLISHED_WEEKS_IN_PERIOD keeps its 409, code and details", () =>
+  withApp(
+    async ({ call }) => {
+      const res = await call("POST", "/cuts", "t-admin", SAVE);
+      assert.equal(res.status, 409);
+      assert.equal(res.json.code, "UNPUBLISHED_WEEKS_IN_PERIOD");
+      assert.deepEqual(res.json.details, { items: [{ sedeId: "bello", weekStart: "2026-11-02" }] });
+    },
+    stubService({
+      saveCut: () => {
+        const err = createHttpError(409, "No se puede guardar el corte: hay semanas en borrador.", "UNPUBLISHED_WEEKS_IN_PERIOD");
+        err.details = { items: [{ sedeId: "bello", weekStart: "2026-11-02" }] };
+        throw err;
+      },
+    }),
+  ));
+
 test("src/routes.js hands the profiles repository to the payroll service (names of who saved or voided)", async () => {
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../../src/routes.js", import.meta.url), "utf8");

@@ -47,6 +47,7 @@ function build({
   directory = [],
   directoryError = null,
   paidCut = null,
+  drafts = [],
   lastPaid = null,
   cutRow = CUT_ROW,
   cutLines = [],
@@ -61,6 +62,7 @@ function build({
   const calls = { save: [], void: [], getCut: [], listCuts: [], sums: [], lastPaid: 0, shifts: 0 };
   const repo = {
     async listShiftsInRange() { calls.shifts += 1; return shifts; },
+    async listDraftWorkShifts() { return drafts; },
     async listSchedulesInRange() { return ALL_PUBLISHED; },
     async listSedes() { return CAT; },
     async findPaidCutOverlapping() { return paidCut; },
@@ -134,6 +136,20 @@ test("permissions: canSaveCut = admin and no PAGADO cut in the way; canVoidCut =
 async function fingerprintOf(service) {
   return (await report(service)).fingerprint;
 }
+
+test("saveCut refuses with 409 UNPUBLISHED_WEEKS_IN_PERIOD when a BORRADOR week with work overlaps the period", async () => {
+  const drafts = [{ sede_id: "bello", fecha: "2026-11-03" }];
+  const { service, calls } = build({ ...WORKED, drafts });
+  const fingerprint = await fingerprintOf(service);
+  await assert.rejects(service.saveCut(ADMIN, USER, { from: FROM, to: TO, fingerprint }), (e) => {
+    assert.equal(e.statusCode, 409);
+    assert.equal(e.code, "UNPUBLISHED_WEEKS_IN_PERIOD");
+    assert.match(e.message, /bello \(semana del 2026-11-02\)/);
+    assert.deepEqual(e.details.items, [{ sedeId: "bello", weekStart: "2026-11-02" }]);
+    return true;
+  });
+  assert.equal(calls.save.length, 0);
+});
 
 test("saveCut is admin only", async () => {
   const { service, calls } = build(WORKED);
