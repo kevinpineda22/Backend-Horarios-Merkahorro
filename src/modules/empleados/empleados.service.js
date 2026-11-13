@@ -3,6 +3,7 @@ import { canAccessSede } from "../../shared/http/authorize.js";
 import { HttpError, createHttpError } from "../../shared/http/HttpError.js";
 import { normalizeCedula } from "../../shared/cedula.js";
 import { normalizeSedeAlias as fold } from "../../shared/sedeAlias.js";
+import { isCashierCargo } from "../sugerido/repositories/staff.port.js";
 
 const DEFAULT_TTL_MS = 300000;
 
@@ -16,9 +17,10 @@ const unavailable = () =>
  * expired entry is not served stale, the caller gets 503 STAFF_SOURCE_UNAVAILABLE.
  * Mapping counters are logged (counts only, no PII).
  *
- * Cashier exclusions ("Solo surtidor", migration 011) are NOT part of the cached directory: they change on a click,
- * so every list() reads the active ones (one query) and decorates the rows it returns with `excluidoDeCaja` and
- * `exclusion`. Without an exclusionsRepo nobody is excluded.
+ * Cashier marks are NOT part of the cached directory: they change on a click, so every list() reads the active ones
+ * (one query) and decorates the rows it returns with `excluidoDeCaja` + `exclusion` ("Solo surtidor", migration 011)
+ * and `incluidoEnCaja` + `inclusion` ("Programar en caja" with another cargo, migration 012). A person has at most one
+ * active mark. Without an exclusionsRepo nobody is marked.
  */
 export function createEmpleadosService({
   client,
@@ -92,8 +94,16 @@ export function createEmpleadosService({
     data = Object.freeze(
       await Promise.all(
         data.map(async (row) => {
-          const exclusion = byCedula.get(row.cedula) ?? null;
-          return Object.freeze({ ...row, excluidoDeCaja: exclusion !== null, exclusion: Object.freeze(await toExclusionDto(exclusion, nameOf)) });
+          const mark = byCedula.get(row.cedula) ?? null;
+          const exclusion = mark?.kind === "include" ? null : mark;
+          const inclusion = mark?.kind === "include" ? mark : null;
+          return Object.freeze({
+            ...row,
+            excluidoDeCaja: exclusion !== null,
+            exclusion: Object.freeze(await toExclusionDto(exclusion, nameOf)),
+            incluidoEnCaja: inclusion !== null,
+            inclusion: Object.freeze(await toExclusionDto(inclusion, nameOf)),
+          });
         }),
       ),
     );
@@ -104,7 +114,7 @@ export function createEmpleadosService({
    * Marks / unmarks an active employee as "solo surtidor" (not scheduled at the register). Admin anywhere; a planner
    * only for employees of their sedes. Idempotent: the same state again is a no-op that keeps the existing row.
    */
-  async function setExclusion(access, user, cedulaInput, { excluido, motivo }) {
+  async function setMark(access, user, cedulaInput, kind, on, motivo) {
     if (!access || !["admin", "planner"].includes(access.role)) {
       throw createHttpError(403, "No tienes permisos para realizar esta acción.", "FORBIDDEN_ROLE");
     }
@@ -116,14 +126,53 @@ export function createEmpleadosService({
       throw createHttpError(403, "No tienes acceso a esta sede.", "FORBIDDEN_SEDE");
     }
 
-    const nameOf = nameResolver();
-    if (!excluido) {
-      await exclusionsRepo.revoke({ cedula, userId: user.id });
-      return { cedula, excluidoDeCaja: false, exclusion: null };
+    // "Programar en caja" is for other cargos: a cashier cargo is already scheduled (or marked Solo surtidor).
+    if (on && kind === "include" && isCashierCargo(employee.cargo)) {
+      throw createHttpError(409, "Esta persona ya tiene cargo de caja.", "CARGO_YA_ES_CAJA");
     }
-    const existing = (await exclusionsRepo.listActive()).find((e) => e.cedula === cedula);
-    const row = existing ?? (await exclusionsRepo.create({ cedula, sedeId: employee.sedeId ?? null, motivo: motivo ?? null, userId: user.id }));
-    return { cedula, excluidoDeCaja: true, exclusion: await toExclusionDto(row, nameOf) };
+    if (!on) {
+      // Only this kind: unmarking "Programar en caja" never lifts a "Solo surtidor", and the other way round.
+      await exclusionsRepo.revoke({ cedula, userId: user.id, kind });
+      return null;
+    }
+    const existing = (await exclusionsRepo.listActive()).find((e) => e.cedula === cedula) ?? null;
+    const existingKind = existing ? existing.kind ?? "exclude" : null;
+    if (existingKind === kind) return existing;
+    if (existing) {
+      // The two marks replace each other (one active row per cedula): lift the other one first.
+      await exclusionsRepo.revoke({ cedula, userId: user.id, kind: existingKind });
+    }
+    let row;
+    try {
+      row = await exclusionsRepo.create({ cedula, sedeId: employee.sedeId ?? null, motivo: motivo ?? null, userId: user.id, kind });
+    } catch (err) {
+      // Never leave the person with NO mark because the second step failed: put the lifted one back (best effort).
+      if (existing) {
+        await exclusionsRepo
+          .create({ cedula, sedeId: existing.sedeId ?? null, motivo: existing.motivo ?? null, userId: existing.createdBy ?? user.id, kind: existingKind })
+          .catch(() => {});
+      }
+      throw err;
+    }
+    // A concurrent change won the race (create returns the active row): say so instead of reporting the wrong mark.
+    if ((row?.kind ?? "exclude") !== kind) {
+      throw createHttpError(409, "Otra persona cambió esta marca al mismo tiempo. Actualiza la lista.", "MARK_CONFLICT");
+    }
+    return row;
+  }
+
+  /** "Solo surtidor": not scheduled at the register although SIESA says cashier. Replaces a "Programar en caja". */
+  async function setExclusion(access, user, cedulaInput, { excluido, motivo }) {
+    const row = await setMark(access, user, cedulaInput, "exclude", excluido, motivo);
+    const cedula = normalizeCedula(cedulaInput);
+    return row ? { cedula, excluidoDeCaja: true, exclusion: await toExclusionDto(row, nameResolver()) } : { cedula, excluidoDeCaja: false, exclusion: null };
+  }
+
+  /** "Programar en caja": scheduled at the register although the SIESA cargo is not a cashier one. Replaces a "Solo surtidor". */
+  async function setInclusion(access, user, cedulaInput, { incluido, motivo }) {
+    const row = await setMark(access, user, cedulaInput, "include", incluido, motivo);
+    const cedula = normalizeCedula(cedulaInput);
+    return row ? { cedula, incluidoEnCaja: true, inclusion: await toExclusionDto(row, nameResolver()) } : { cedula, incluidoEnCaja: false, inclusion: null };
   }
 
   /**
@@ -136,5 +185,5 @@ export function createEmpleadosService({
     return rows.find((r) => r.cedula === cedula) ?? null;
   }
 
-  return { list, setExclusion, findActiveByCedula };
+  return { list, setExclusion, setInclusion, findActiveByCedula };
 }

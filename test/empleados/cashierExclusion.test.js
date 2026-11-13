@@ -57,7 +57,7 @@ const ROW = { id: "e1", cedula: "111111", sede_id: "s1", motivo: "Solo surtidor"
 test("repo.listActive: ONE query for the active rows only, mapped to camelCase", async () => {
   const { log, client } = fakeClient({ results: [{ data: [ROW], error: null }] });
   assert.deepEqual(await createCashierExclusionsRepo(client).listActive(), [
-    { cedula: "111111", sedeId: "s1", motivo: "Solo surtidor", createdBy: "u-admin", createdAt: "2026-11-10T10:00:00.000Z" },
+    { cedula: "111111", sedeId: "s1", motivo: "Solo surtidor", createdBy: "u-admin", createdAt: "2026-11-10T10:00:00.000Z", kind: "exclude" },
   ]);
   assert.equal(log.filter((c) => c[0] === "from").length, 1);
   assert.ok(has(log, "from", "cashier_exclusions"));
@@ -70,7 +70,7 @@ test("repo.create inserts the active row and returns it; a concurrent duplicate 
   const ok = fakeClient({ results: [{ data: ROW, error: null }] });
   const out = await createCashierExclusionsRepo(ok.client).create({ cedula: "111111", sedeId: "s1", motivo: "Solo surtidor", userId: "u-admin" });
   assert.equal(out.cedula, "111111");
-  assert.ok(has(ok.log, "insert", { cedula: "111111", sede_id: "s1", motivo: "Solo surtidor", created_by: "u-admin" }));
+  assert.ok(has(ok.log, "insert", { cedula: "111111", sede_id: "s1", motivo: "Solo surtidor", created_by: "u-admin", kind: "exclude" }));
 
   const race = fakeClient({ results: [{ data: null, error: { code: "23505" } }, { data: ROW, error: null }] });
   assert.equal((await createCashierExclusionsRepo(race.client).create({ cedula: "111111", sedeId: "s1", motivo: null, userId: "u-admin" })).cedula, "111111");
@@ -171,7 +171,7 @@ test("setExclusion: admin excludes an employee of any sede; the sede of the empl
     excluidoDeCaja: true,
     exclusion: { motivo: "Solo surtidor", createdAt: "2026-11-11T09:00:00.000Z", createdByName: "Ana Admin" },
   });
-  assert.deepEqual(repo.state.calls.find((c) => c[0] === "create")[1], { cedula: "222222", sedeId: "s2", motivo: "Solo surtidor", userId: "u-admin" });
+  assert.deepEqual(repo.state.calls.find((c) => c[0] === "create")[1], { cedula: "222222", sedeId: "s2", motivo: "Solo surtidor", userId: "u-admin", kind: "exclude" });
 });
 
 test("setExclusion: a cedula with leading zeros is normalized", async () => {
@@ -191,7 +191,10 @@ test("setExclusion: idempotent both ways - repeating the same state is a 200 no-
   assert.deepEqual(off, { cedula: "111111", excluidoDeCaja: false, exclusion: null });
   const offAgain = await service.setExclusion(ADMIN, { id: "u-admin" }, "111111", { excluido: false, motivo: null });
   assert.deepEqual(offAgain, { cedula: "111111", excluidoDeCaja: false, exclusion: null });
-  assert.deepEqual(repo.state.calls.filter((c) => c[0] === "revoke").map((c) => c[1]), [{ cedula: "111111", userId: "u-admin" }, { cedula: "111111", userId: "u-admin" }]);
+  assert.deepEqual(repo.state.calls.filter((c) => c[0] === "revoke").map((c) => c[1]), [
+    { cedula: "111111", userId: "u-admin", kind: "exclude" },
+    { cedula: "111111", userId: "u-admin", kind: "exclude" },
+  ]);
 });
 
 test("setExclusion auth matrix: admin anywhere; planner only in their sedes; viewer never", async () => {

@@ -24,6 +24,12 @@ export const exclusionBodySchema = z.object({
     .transform((v) => v || null),
 });
 
+// "Programar en caja" for somebody whose SIESA cargo is not a cashier one (CAJERO PAC, Auxiliar de Fruver...).
+export const inclusionBodySchema = z.object({
+  incluido: z.boolean({ required_error: "incluido es obligatorio", invalid_type_error: "incluido debe ser verdadero o falso" }),
+  motivo: exclusionBodySchema.shape.motivo,
+});
+
 /**
  * GET /api/empleados. Order: authenticate -> loadAccess -> requireRole -> validate.
  * Any role with an access row can read; each caller only sees rows of its sedes.
@@ -46,6 +52,16 @@ export function createEmpleadosRouter({ authenticate, accessRepo, service }) {
     validate({ params: exclusionParamsSchema, body: exclusionBodySchema }),
     asyncHandler(async (req, res) =>
       res.json({ data: await service.setExclusion(req.access, req.user, req.params.cedula, req.body) }),
+    ),
+  );
+
+  // "Programar en caja": same roles and sede rules as the exclusion above.
+  router.put(
+    "/:cedula/inclusion-caja",
+    requireRole("admin", "planner"),
+    validate({ params: exclusionParamsSchema, body: inclusionBodySchema }),
+    asyncHandler(async (req, res) =>
+      res.json({ data: await service.setInclusion(req.access, req.user, req.params.cedula, req.body) }),
     ),
   );
 

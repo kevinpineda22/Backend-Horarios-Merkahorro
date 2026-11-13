@@ -15,6 +15,9 @@ export const CASHIER_CARGOS = Object.freeze(["cajera", "cajero", "cajero - surti
 /** Fold accents/case, collapse whitespace and normalize the spacing around hyphens. */
 const normalizeCargo = (value) => fold(value).replace(/\s*-\s*/g, " - ");
 
+/** True for the cashier cargos of the allowlist above. */
+export const isCashierCargo = (cargo) => CASHIER_CARGOS.includes(normalizeCargo(cargo));
+
 const notMapped = () =>
   createHttpError(404, "La sede no está configurada para el sugerido.", "SEDE_NOT_MAPPED");
 
@@ -42,9 +45,11 @@ export function createStaffPort(empleadosService, sedeRepo) {
       const cedulas = new Set();
       for (const row of result.data) {
         if (row?.activo !== true || row.sedeId !== sedeId) continue;
+        // "Programar en caja": another cargo in SIESA, but the leader says she works the register.
+        const included = row.incluidoEnCaja === true;
         // "Solo surtidor": SIESA says cashier, the leader says she does not work the register (yet).
-        if (row.excluidoDeCaja === true) continue;
-        if (!CASHIER_CARGOS.includes(normalizeCargo(row.cargo))) continue;
+        if (!included && row.excluidoDeCaja === true) continue;
+        if (!included && !CASHIER_CARGOS.includes(normalizeCargo(row.cargo))) continue;
         const cedula = normalizeCedula(row.cedula);
         if (cedula) cedulas.add(cedula);
       }
