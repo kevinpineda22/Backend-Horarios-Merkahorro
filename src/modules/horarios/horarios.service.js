@@ -3,6 +3,7 @@ import { canAccessSede } from "../../shared/http/authorize.js";
 import { addDays } from "../sugerido/domain/dates.js";
 import { normalizeWeekPayload } from "./domain/weekPayload.js";
 import { publishBlockers, weekWarnings } from "./domain/weekRules.js";
+import { diffSnapshotRows } from "./domain/snapshotDiff.js";
 
 const WRITER_ROLES = ["admin", "planner"];
 
@@ -284,6 +285,44 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
         warnings: weekWarnings(ruleRows, weekStart, scope),
         alreadyPublished: Boolean(result?.noop),
         snapshotSaved,
+      };
+    },
+
+    /** Publish snapshots of a sede, newest first: who published, when, and how much differs from the suggestion. */
+    async listSnapshots(access, sedeId, { limit }) {
+      assertCanRead(access, sedeId);
+      await assertSede(sedeId);
+      const nameOf = nameResolver();
+      const rows = await snapshotsRepo.listBySede({ sedeId, limit });
+      return Promise.all(
+        rows.map(async (s) => ({
+          id: s.id,
+          weekStart: s.weekStart,
+          scheduleVersion: s.scheduleVersion,
+          publishedAt: s.publishedAt,
+          publishedBy: await nameOf(s.publishedBy),
+          hasRecommendation: s.recommendation !== null,
+          hasSuggestion: s.suggested !== null,
+          diff: diffSnapshotRows(s.suggested?.shifts ?? null, s.published),
+        })),
+      );
+    },
+
+    /** One snapshot with its three parts: recommendation, suggestion and published rows. */
+    async getSnapshot(access, sedeId, snapshotId) {
+      assertCanRead(access, sedeId);
+      const s = await snapshotsRepo.findById(snapshotId);
+      if (!s || s.sedeId !== sedeId) throw createHttpError(404, "No encontramos esa publicación.", "SNAPSHOT_NOT_FOUND");
+      return {
+        id: s.id,
+        weekStart: s.weekStart,
+        scheduleVersion: s.scheduleVersion,
+        publishedAt: s.publishedAt,
+        publishedBy: await nameResolver()(s.publishedBy),
+        recommendation: s.recommendation,
+        suggested: s.suggested,
+        published: s.published,
+        diff: diffSnapshotRows(s.suggested?.shifts ?? null, s.published),
       };
     },
 

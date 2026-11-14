@@ -107,6 +107,22 @@ export const unpublishBodySchema = z.object({
     .min(1, "Solo se puede despublicar un horario ya publicado"),
 });
 
+export const snapshotParamsSchema = z.object({
+  sedeId,
+  snapshotId: z.string().uuid("Id inválido"),
+});
+
+export const SNAPSHOTS_DEFAULT_LIMIT = 26;
+export const snapshotsListQuerySchema = z.object({
+  limit: z
+    .string()
+    .regex(/^\d+$/, "limit inválido")
+    .transform(Number)
+    .refine((n) => n >= 1 && n <= 52, "limit debe estar entre 1 y 52")
+    .optional()
+    .transform((n) => n ?? SNAPSHOTS_DEFAULT_LIMIT),
+});
+
 export const historyQuerySchema = z.object({
   limit: z
     .string()
