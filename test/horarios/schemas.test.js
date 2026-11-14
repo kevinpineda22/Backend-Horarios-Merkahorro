@@ -63,6 +63,27 @@ test("save body strips derived or audit fields", () => {
 
 test("publish body needs expectedVersion >= 1", () => {
   ok(publishBodySchema, { expectedVersion: 1 });
+  ok(publishBodySchema, {
+    expectedVersion: 1,
+    snapshot: {
+      recommendation: { runVersion: 7, dataAsOf: "2030-12-30", registers: null, slots: [{ fecha: "2031-01-06", franja: "08:00", final: 3 }] },
+      suggested: { shifts: [{ cedula: "11111111", fecha: "2031-01-06", tipo: "TRABAJO", startTime: "07:00", endTime: "15:00", breakMinutes: 60, lunchStart: "11:00" }] },
+    },
+  });
+  ok(publishBodySchema, { expectedVersion: 1, snapshot: { recommendation: null, suggested: null } });
+  // A malformed snapshot never blocks publishing: it is dropped.
+  for (const snapshot of [
+    { recommendation: { slots: [{ fecha: "x", franja: "08:00", final: 3 }] }, suggested: null },
+    { recommendation: { slots: [{ fecha: "2031-01-06", franja: "08:00", final: -1 }] }, suggested: null },
+    { recommendation: null, suggested: { shifts: [{ cedula: "abc", fecha: "2031-01-06", tipo: "TRABAJO" }] } },
+    "basura",
+  ]) {
+    const parsed = publishBodySchema.parse({ expectedVersion: 1, snapshot });
+    assert.deepEqual(parsed, { expectedVersion: 1, snapshot: null }, JSON.stringify(snapshot));
+  }
+
+
+
   bad(publishBodySchema, { expectedVersion: 0 });
   bad(publishBodySchema, {});
 });

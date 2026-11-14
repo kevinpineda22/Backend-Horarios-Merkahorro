@@ -72,11 +72,32 @@ export const saveBodySchema = z.object({
   shifts: z.array(shiftIn).max(MAX_SHIFTS, `No puedes enviar más de ${MAX_SHIFTS} turnos`),
 });
 
+// What the leader saw when publishing (migration 013): the recommendation (cashiers needed per 15-minute slot, after
+// adjustments) and the schedule the system suggested. Stored as sent, only to compare it later with what was published.
+const MAX_SNAPSHOT_SLOTS = 7 * 96;
+const recommendationSnapshot = z.object({
+  runVersion: z.number().int().min(0).nullish(),
+  dataAsOf: z.string().regex(DATE_RE, "Fecha inválida (YYYY-MM-DD)").nullish(),
+  registers: z.number().int().min(0).max(500).nullish(),
+  slots: z
+    .array(
+      z.object({
+        fecha: date,
+        franja: z.string().regex(/^\d{2}:\d{2}$/, "Franja inválida (HH:MM)"),
+        final: z.number().int().min(0).max(500),
+      }),
+    )
+    .max(MAX_SNAPSHOT_SLOTS),
+});
+const suggestedSnapshot = z.object({ shifts: z.array(shiftIn).max(MAX_SHIFTS, `No puedes enviar más de ${MAX_SHIFTS} turnos`) });
+
 export const publishBodySchema = z.object({
   expectedVersion: z
     .number({ required_error: "expectedVersion es obligatorio", invalid_type_error: "expectedVersion debe ser un número" })
     .int("expectedVersion debe ser un entero")
     .min(1, "Solo se puede publicar un horario ya guardado"),
+  // Lenient on purpose: a malformed snapshot is dropped (null) instead of rejecting the publication.
+  snapshot: z.object({ recommendation: recommendationSnapshot.nullish(), suggested: suggestedSnapshot.nullish() }).nullish().catch(null),
 });
 
 export const unpublishBodySchema = z.object({

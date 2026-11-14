@@ -20,6 +20,7 @@ import { createSugeridoModule } from "./modules/sugerido/sugerido.module.js";
 import { createHorariosRouter } from "./modules/horarios/horarios.routes.js";
 import { createHorariosService } from "./modules/horarios/horarios.service.js";
 import { createHorariosRepo } from "./modules/horarios/horarios.supabase.js";
+import { createPublishSnapshotsRepo } from "./modules/horarios/publishSnapshots.supabase.js";
 import { createPayrollRouter } from "./modules/horarios/payroll.routes.js";
 import { createPayrollService } from "./modules/horarios/payroll.service.js";
 import { createPayrollRepo } from "./modules/horarios/payroll.supabase.js";
@@ -114,6 +115,7 @@ export default createRoutes({
       service: createHorariosService({
         repo: createHorariosRepo(lazyClient),
         profilesRepo: createProfilesRepo(lazyClient),
+        snapshotsRepo: createPublishSnapshotsRepo(lazyClient),
       }),
     }),
     // Sales pool and Supabase are created on first use (see sugerido.module.js).

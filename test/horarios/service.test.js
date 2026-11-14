@@ -31,7 +31,7 @@ const dbRow = (r, sede = "copacabana", schedule = SCHED) => ({
   observacion: r.observacion ?? null, updated_by: ADMIN, updated_at: "t1",
 });
 
-function fakes({ schedule = null, rows = [], neighbors = [], sedes = ["copacabana", "las-vegas"], paidCut = null } = {}) {
+function fakes({ schedule = null, rows = [], neighbors = [], sedes = ["copacabana", "las-vegas"], paidCut = null, snapshotsRepo, logger } = {}) {
   const state = { schedule, rows: [...rows] };
   const calls = [];
   const repo = {
@@ -71,7 +71,7 @@ function fakes({ schedule = null, rows = [], neighbors = [], sedes = ["copacaban
     },
   };
   const profilesRepo = { async findById(id) { return NAMES[id] ? { user_id: id, nombre: NAMES[id], correo: "x@x.co" } : null; } };
-  return { repo, profilesRepo, service: createHorariosService({ repo, profilesRepo }) };
+  return { repo, profilesRepo, service: createHorariosService({ repo, profilesRepo, snapshotsRepo, logger }) };
 }
 const stored = (over = {}) => ({
   id: SCHED, sede_id: "copacabana", week_start: W, state: "BORRADOR", version: 1, published_by: null, published_at: null,
@@ -290,4 +290,59 @@ test("get and history re-check sede access: 403 FORBIDDEN_SEDE before touching t
   await assert.rejects(service.history(access.plannerOther, "copacabana", W, 25), code(403, "FORBIDDEN_SEDE"));
   await assert.rejects(service.get(null, "copacabana", W), code(403, "FORBIDDEN_SEDE"));
   assert.equal(repo.calls.length, 0);
+});
+
+// ------------------------------------------------------------------ publish snapshot (migration 013)
+// What the system recommended, what it suggested and what the leader published, frozen at publish time.
+
+const SNAPSHOT = {
+  recommendation: { runVersion: 7, dataAsOf: "2030-12-30", registers: 10, slots: [{ fecha: DAYS[0], franja: "08:00", final: 3 }] },
+  suggested: { shifts: [work("11111111", DAYS[0], "07:00", "15:00")] },
+};
+const fakeSnapshots = ({ fail = false } = {}) => {
+  const created = [];
+  return { created, async create(args) { if (fail) throw new Error("db down"); created.push(args); return { id: "snap-1" }; } };
+};
+
+test("publishing stores the snapshot: recommendation and suggestion as sent, the published rows read from the database", async () => {
+  const snapshotsRepo = fakeSnapshots();
+  const { service } = fakes({ schedule: stored(), rows: ready(), snapshotsRepo });
+  const out = await service.publish(access.planner, user(PLANNER), "copacabana", W, { expectedVersion: 1, snapshot: SNAPSHOT });
+  assert.equal(out.snapshotSaved, true);
+  assert.equal(snapshotsRepo.created.length, 1);
+  const saved = snapshotsRepo.created[0];
+  assert.deepEqual(
+    { scheduleId: saved.scheduleId, sedeId: saved.sedeId, weekStart: saved.weekStart, version: saved.scheduleVersion, actor: saved.publishedBy },
+    { scheduleId: SCHED, sedeId: "copacabana", weekStart: W, version: 2, actor: PLANNER },
+  );
+  assert.deepEqual(saved.recommendation, SNAPSHOT.recommendation);
+  assert.deepEqual(saved.suggested, SNAPSHOT.suggested);
+  assert.equal(saved.published.length, 7);
+  assert.deepEqual(saved.published[0], { cedula: "11111111", fecha: DAYS[0], tipo: "TRABAJO", startTime: "08:00", endTime: "12:00", breakMinutes: 0, lunchStart: null });
+});
+
+test("without a snapshot in the request the published rows are still stored (recommendation and suggestion null)", async () => {
+  const snapshotsRepo = fakeSnapshots();
+  const { service } = fakes({ schedule: stored(), rows: ready(), snapshotsRepo });
+  await service.publish(access.planner, user(PLANNER), "copacabana", W, { expectedVersion: 1 });
+  assert.equal(snapshotsRepo.created[0].recommendation, null);
+  assert.equal(snapshotsRepo.created[0].suggested, null);
+  assert.equal(snapshotsRepo.created[0].published.length, 7);
+});
+
+test("a failing snapshot never blocks the publication: it is logged and reported as snapshotSaved false", async () => {
+  const errors = [];
+  const { service } = fakes({ schedule: stored(), rows: ready(), snapshotsRepo: fakeSnapshots({ fail: true }), logger: { error: (...a) => errors.push(a) } });
+  const out = await service.publish(access.planner, user(PLANNER), "copacabana", W, { expectedVersion: 1, snapshot: SNAPSHOT });
+  assert.equal(out.schedule.state, "PUBLICADO");
+  assert.equal(out.snapshotSaved, false);
+  assert.equal(errors.length, 1);
+});
+
+test("an already published week stores no new snapshot", async () => {
+  const snapshotsRepo = fakeSnapshots();
+  const { service } = fakes({ schedule: stored({ state: "PUBLICADO", version: 2, published_by: PLANNER, published_at: "t3" }), rows: ready(), snapshotsRepo });
+  const out = await service.publish(access.planner, user(PLANNER), "copacabana", W, { expectedVersion: 2, snapshot: SNAPSHOT });
+  assert.equal(out.alreadyPublished, true);
+  assert.equal(snapshotsRepo.created.length, 0);
 });

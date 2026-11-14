@@ -51,13 +51,21 @@ const workingCedulas = (ruleRows) => [...new Set(ruleRows.filter((r) => r.tipo =
 const forbiddenRole = () => createHttpError(403, "No tienes permisos para realizar esta acción.", "FORBIDDEN_ROLE");
 const forbiddenSede = () => createHttpError(403, "No tienes acceso a esta sede.", "FORBIDDEN_SEDE");
 
+// One published row as the publish snapshot keeps it (no ids, sede code, cargo or notes: only what the comparison needs).
+const toSnapshotRow = (r) => {
+  const dto = toShiftDto(r);
+  return { cedula: dto.cedula, fecha: dto.fecha, tipo: dto.tipo, startTime: dto.startTime, endTime: dto.endTime, breakMinutes: dto.breakMinutes, lunchStart: dto.lunchStart };
+};
+
 /**
  * Shift persistence use cases. Ports:
- *   repo         findSede / findSchedule / listShifts / listShiftsByCedulas / saveWeek / publishWeek / listHistory
- *   profilesRepo findById (names of actors)
+ *   repo          findSede / findSchedule / listShifts / listShiftsByCedulas / saveWeek / publishWeek / listHistory
+ *   profilesRepo  findById (names of actors)
+ *   snapshotsRepo create (migration 013): what was recommended, suggested and published, frozen on every publication.
+ *                 Optional; a failure is logged and never blocks publishing.
  * The routes already filter roles and sedes; every use case re-checks sede access (and writes the role) so the service is safe on its own.
  */
-export function createHorariosService({ repo, profilesRepo }) {
+export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null, logger = console }) {
   async function assertSede(sedeId) {
     if (!(await repo.findSede(sedeId))) throw createHttpError(404, "Sede no encontrada.", "SEDE_NOT_FOUND");
   }
@@ -69,6 +77,27 @@ export function createHorariosService({ repo, profilesRepo }) {
 
   function assertCanRead(access, sedeId) {
     if (!canAccessSede(access, sedeId)) throw forbiddenSede();
+  }
+
+  /** Freezes recommendation + suggestion (as the client sent them) + the published rows. true when stored. */
+  async function saveSnapshot(schedule, user, snapshot) {
+    if (!snapshotsRepo) return false;
+    try {
+      await snapshotsRepo.create({
+        scheduleId: schedule.id,
+        sedeId: schedule.sede_id,
+        weekStart: schedule.week_start,
+        scheduleVersion: schedule.version,
+        publishedBy: user.id,
+        recommendation: snapshot?.recommendation ?? null,
+        suggested: snapshot?.suggested ?? null,
+        published: (await repo.listShifts(schedule.id)).map(toSnapshotRow),
+      });
+      return true;
+    } catch (err) {
+      logger?.error?.("[horarios] publish snapshot not saved", { sedeId: schedule.sede_id, weekStart: schedule.week_start, message: err?.message });
+      return false;
+    }
   }
 
   const permissionsFor = (access, sedeId) => {
@@ -211,7 +240,7 @@ export function createHorariosService({ repo, profilesRepo }) {
       return { schedule: await toScheduleDto(saved, sedeId, weekStart, nameOf), shifts: rows.map(toShiftDto), warnings };
     },
 
-    async publish(access, user, sedeId, weekStart, { expectedVersion }) {
+    async publish(access, user, sedeId, weekStart, { expectedVersion, snapshot = null }) {
       assertCanWrite(access, sedeId);
       await assertSede(sedeId);
       const nameOf = nameResolver();
@@ -249,10 +278,12 @@ export function createHorariosService({ repo, profilesRepo }) {
 
       const result = await repo.publishWeek({ sedeId, weekStart, expectedVersion, actor: user.id });
       const published = await repo.findSchedule(sedeId, weekStart);
+      const snapshotSaved = result?.noop ? false : await saveSnapshot(published, user, snapshot);
       return {
         schedule: await toScheduleDto(published, sedeId, weekStart, nameOf),
         warnings: weekWarnings(ruleRows, weekStart, scope),
         alreadyPublished: Boolean(result?.noop),
+        snapshotSaved,
       };
     },
 
