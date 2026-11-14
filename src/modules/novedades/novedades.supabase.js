@@ -64,7 +64,7 @@ export function createNovedadesRepo(client) {
         const page = unwrap(
           await client
             .from(TABLE)
-            .select("id, cedula, tipo, fecha_inicio, fecha_fin, anulada")
+            .select("id, cedula, tipo, subtipo, fecha_inicio, fecha_fin, anulada")
             .eq("anulada", false)
             .lte("fecha_inicio", hasta)
             .gte("fecha_fin", desde)

@@ -107,6 +107,7 @@ export default createRoutes({
         repo: createPayrollRepo(lazyClient),
         empleadosService,
         profilesRepo: createProfilesRepo(lazyClient),
+        novedadesRepo: createNovedadesRepo(lazyClient),
       }),
     }),
     "/horarios": createHorariosRouter({

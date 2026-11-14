@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { licenciaSummary } from "./domain/payrollLicencias.js";
 import { createHttpError } from "../../shared/http/HttpError.js";
 import { canAccessSede } from "../../shared/http/authorize.js";
 import { getHoliday } from "../sugerido/domain/calendar.js";
@@ -157,6 +158,7 @@ export function createPayrollService({
   repo,
   empleadosService,
   profilesRepo,
+  novedadesRepo = null, // optional: licences (Remunerada / No remunerada) shown to nómina next to the concepts
   getHolidayFn = getHoliday,
   now = () => new Date(),
 }) {
@@ -217,6 +219,23 @@ export function createPayrollService({
     }
   }
 
+  // Licences of the period by cedula. A failure never breaks the report: the rows get zeros and a warning.
+  async function loadLicencias(from, to) {
+    if (!novedadesRepo) return { byCedula: new Map(), available: true };
+    try {
+      const rows = await novedadesRepo.listActiveOverlapping({ desde: from, hasta: to, tipos: ["Licencias"] });
+      const byCedula = new Map();
+      for (const r of rows) {
+        if (!byCedula.has(r.cedula)) byCedula.set(r.cedula, []);
+        byCedula.get(r.cedula).push({ subtipo: r.subtipo ?? null, fechaInicio: r.fecha_inicio, fechaFin: r.fecha_fin });
+      }
+      return { byCedula, available: true };
+    } catch (err) {
+      console.error("[payroll] licences unavailable:", err?.message);
+      return { byCedula: new Map(), available: false };
+    }
+  }
+
   // Live computation shared by the report and the cut save (which needs the unfiltered rows).
   async function compute(access, query) {
   assertCanRead(access, query.sedeId);
@@ -225,7 +244,7 @@ export function createPayrollService({
   const weeks = periodWeeks(from, to);
   const { sedeId } = query;
 
-  const [shiftRows, draftShifts, schedules, sedes, directory, paidCut] = await Promise.all([
+  const [shiftRows, draftShifts, schedules, sedes, directory, paidCut, licenciasLoad] = await Promise.all([
     // Published schedules only (the repo filters in the database); the day before `from` covers midnight spill.
     repo.listShiftsInRange({ from: addDays(from, -1), to }),
     repo.listDraftWorkShifts ? repo.listDraftWorkShifts({ from, to }) : [],
@@ -233,6 +252,7 @@ export function createPayrollService({
     repo.listSedes(),
     loadDirectory(),
     repo.findPaidCutOverlapping ? repo.findPaidCutOverlapping(from, to) : null,
+    loadLicencias(from, to),
   ]);
 
   const holidays = buildHolidaySet(from, to, getHolidayFn);
@@ -253,6 +273,8 @@ export function createPayrollService({
     const person = directory.byCedula.get(cedula) ?? null;
     const { weeks: weekData, totals } = employeeNovelties(shifts.map(toRuleRow), from, to, holidays.set);
     if (!person && totals.workedHours === 0) continue; // only rest rows and unknown: nothing to report
+    const workedDates = new Set(shifts.filter((s) => s.tipo === "TRABAJO" && s.fecha >= from && s.fecha <= to).map((s) => s.fecha));
+    const licencias = licenciaSummary({ licencias: licenciasLoad.byCedula.get(cedula) ?? [], weeks: weekData, workedDates, from, to });
 
     const last = shifts
       .filter((s) => s.tipo === "TRABAJO" && s.fecha >= from && s.fecha <= to)
@@ -274,6 +296,7 @@ export function createPayrollService({
       inDirectory: directory.available ? Boolean(person) : null,
       weeks: weekData,
       totals,
+      licencias,
     });
   }
   all.sort((a, b) => byText(a.nombre ?? "￿", b.nombre ?? "￿") || byText(a.cedula, b.cedula));
@@ -320,6 +343,11 @@ export function createPayrollService({
   if (paidCut) push("PERIOD_OVERLAPS_PAID_CUT", { cut: paidCut });
   if (to >= today) push("PERIOD_NOT_FINISHED");
   if (!directory.available) push("DIRECTORY_UNAVAILABLE");
+  if (!licenciasLoad.available) push("LICENCIAS_UNAVAILABLE");
+  const licenciaTotals = {
+    licenciaRemuneradaHoras: roundHours(rows.reduce((acc, r) => acc + r.licencias.licenciaRemuneradaHoras, 0)),
+    licenciaNoRemuneradaDias: rows.reduce((acc, r) => acc + r.licencias.licenciaNoRemuneradaDias, 0),
+  };
 
   const isAdmin = access.role === "admin";
   const dto = {
@@ -328,6 +356,7 @@ export function createPayrollService({
     calendar: { sundays, holidays: holidays.list },
     rows,
     totals,
+    licenciaTotals,
     siesa,
     warnings,
     paidCut: paidCut ?? null,

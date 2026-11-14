@@ -22,7 +22,7 @@ test("repo.listActiveOverlapping filters by range, not cancelled and blocking ty
   assert.ok(has(log, "in", "tipo", ["Vacaciones", "Permisos académicos"]));
   assert.ok(!log.some((c) => c.includes("sede_id")), "no sede/user scoping, null-sede rows included");
   const select = log.find((c) => c[0] === "select");
-  assert.equal(select[1], "id, cedula, tipo, fecha_inicio, fecha_fin, anulada", "only the columns availability needs");
+  assert.equal(select[1], "id, cedula, tipo, subtipo, fecha_inicio, fecha_fin, anulada", "only the columns availability needs");
   assert.ok(has(log, "range", 0, 999), "default page size is 1000");
 });
 

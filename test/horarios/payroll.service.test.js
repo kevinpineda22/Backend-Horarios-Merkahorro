@@ -42,6 +42,8 @@ function build({
   directoryError = null,
   paidCut = null,
   now = NOW,
+  licencias = undefined,
+  licenciasError = null,
 } = {}) {
   const calls = { shifts: [], drafts: [], schedules: [], dir: [] };
   const repo = {
@@ -58,7 +60,11 @@ function build({
       return { data: directory, total: directory.length, actualizado: "x" };
     },
   };
-  const service = createPayrollService({ repo, empleadosService, getHolidayFn: (f) => HOLIDAYS[f] ?? null, now });
+  calls.licencias = [];
+  const novedadesRepo = licencias === undefined && !licenciasError ? undefined : {
+    async listActiveOverlapping(args) { calls.licencias.push(args); if (licenciasError) throw licenciasError; return licencias; },
+  };
+  const service = createPayrollService({ repo, empleadosService, novedadesRepo, getHolidayFn: (f) => HOLIDAYS[f] ?? null, now });
   return { service, calls };
 }
 const report = (service, access = ADMIN, q = {}) => service.report(access, { from: FROM, to: TO, ...q });
@@ -428,4 +434,32 @@ test("rows are ordered by name then cedula, rows without name last", async () =>
     directory: [emp("10020002", "copacabana", "Zoe"), emp("10010001", "copacabana", "Ana"), emp("10030003", "copacabana", "Ana")],
   });
   assert.deepEqual((await report(service)).rows.map((r) => r.cedula), ["10010001", "10030003", "10020002", "10070007"]);
+});
+
+// ------------------------------------------------------------------ licences (information for nómina)
+const licRow = (cedula, subtipo, fecha_inicio, fecha_fin) => ({ id: cedula + fecha_inicio, cedula, tipo: "Licencias", subtipo, fecha_inicio, fecha_fin, anulada: false });
+
+test("licences: paid hours and unpaid days per person, read once for the period, with their own totals", async () => {
+  // Week 1 (Oct 26 - Nov 1): A works Wed-Sat 7 h a day (28 h) and has a paid licence Mon-Tue -> 14 h.
+  const shifts = ["2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31"].map((d) => sh("111", "copacabana", d, "08:00", "15:00"));
+  const { service, calls } = build({
+    shifts,
+    directory: [emp("111", "copacabana"), emp("222", "copacabana")],
+    licencias: [licRow("111", "Remunerada", "2026-10-26", "2026-10-27"), licRow("222", "No remunerada", "2026-11-02", "2026-11-04")],
+  });
+  const r = await report(service);
+  assert.deepEqual(calls.licencias, [{ desde: FROM, hasta: TO, tipos: ["Licencias"] }]);
+  const by = Object.fromEntries(r.rows.map((x) => [x.cedula, x.licencias]));
+  assert.deepEqual(by["111"], { licenciaRemuneradaHoras: 14, licenciaNoRemuneradaDias: 0 });
+  assert.deepEqual(by["222"], { licenciaRemuneradaHoras: 0, licenciaNoRemuneradaDias: 3 });
+  assert.deepEqual(r.licenciaTotals, { licenciaRemuneradaHoras: 14, licenciaNoRemuneradaDias: 3 });
+});
+
+test("licences: without the novedades port every row has zeros; a failing read degrades with LICENCIAS_UNAVAILABLE", async () => {
+  const plain = await report(build({ directory: [emp("111", "copacabana")] }).service);
+  assert.deepEqual(plain.rows[0].licencias, { licenciaRemuneradaHoras: 0, licenciaNoRemuneradaDias: 0 });
+  assert.equal(warn(plain, "LICENCIAS_UNAVAILABLE"), undefined);
+  const failing = await report(build({ directory: [emp("111", "copacabana")], licenciasError: new Error("down") }).service);
+  assert.ok(warn(failing, "LICENCIAS_UNAVAILABLE"));
+  assert.deepEqual(failing.licenciaTotals, { licenciaRemuneradaHoras: 0, licenciaNoRemuneradaDias: 0 });
 });
