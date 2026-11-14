@@ -4,6 +4,8 @@ const SCHEDULE_COLUMNS =
   "id, sede_id, week_start, state, version, published_by, published_at, created_by, created_at, updated_by, updated_at";
 const SHIFT_COLUMNS =
   "id, schedule_id, sede_id, siesa_code, cedula, fecha, tipo, start_time, end_time, break_minutes, lunch_start, cargo, observacion, updated_by, updated_at";
+// Public lookup: deliberately short (no observacion, cargo, audit or id columns).
+const PUBLIC_SHIFT_COLUMNS = "schedule_id, fecha, tipo, start_time, end_time, break_minutes, lunch_start";
 const HISTORY_COLUMNS = "id, shift_id, cedula, fecha, action, schedule_version, actor, at, before, after";
 
 const PAGE_SIZE = 1000;
@@ -80,6 +82,24 @@ async function rpc(client, name, args) {
   return data;
 }
 
+// Migration 014 not applied yet: PostgREST cannot find the 5/7-argument functions (PGRST202; 42883 straight from Postgres).
+const isMissingFunction = (error) => error?.code === "PGRST202" || error?.code === "42883";
+// ... or the segments column is missing (42703 from Postgres, PGRST204 when PostgREST's schema cache does not know it).
+const isMissingColumn = (error) => error?.code === "42703" || error?.code === "PGRST204";
+
+/**
+ * Calls the migration-014 RPC (it also stores the segments). When it does not exist yet, falls back to the previous
+ * function without segments so publishing and saving keep working. Resolves { data, segmentsSaved }.
+ */
+async function rpcWithSegments(client, { name, args, segments, logger }) {
+  if (!segments) return { data: await rpc(client, name, args), segmentsSaved: false };
+  const first = await client.rpc(name, { ...args, p_segments: segments });
+  if (!first.error) return { data: first.data, segmentsSaved: true };
+  if (!isMissingFunction(first.error)) throw mapRpcError(first.error);
+  logger?.warn?.(`[horarios] ${name} with segments is missing (apply migration 014); falling back without segments`);
+  return { data: await rpc(client, name, args), segmentsSaved: false };
+}
+
 // camelCase API rows -> the snake_case keys jsonb_to_recordset reads in shifts_save_week.
 const toRpcShift = (s) => ({
   cedula: s.cedula,
@@ -94,7 +114,7 @@ const toRpcShift = (s) => ({
 });
 
 /** Shift persistence over `sede_week_schedules` / `shifts` / `shift_history` and the 004 RPCs. */
-export function createHorariosRepo(client) {
+export function createHorariosRepo(client, { logger = console } = {}) {
   return {
     async findSede(sedeId) {
       const { data, error } = await client
@@ -133,19 +153,28 @@ export function createHorariosRepo(client) {
     /**
      * Shifts of ONE cedula whose date is within [from, to], across every sede and state. Public lookup step 1:
      * the result is small (one employee, ~13 weeks) and yields the schedule ids to check for publication.
-     * The column list is deliberately short (no observacion, cargo, audit or id columns).
+     * The column list is deliberately short (no observacion, cargo, audit or id columns); `segments` is the frozen
+     * caja/surtido split (migration 014) and is simply left out until that migration is applied.
      */
     async listShiftsByCedulaInRange({ cedula, from, to }) {
-      return fetchAll(() =>
-        client
-          .from("shifts")
-          .select("schedule_id, fecha, tipo, start_time, end_time, break_minutes, lunch_start")
-          .eq("cedula", cedula)
-          .gte("fecha", from)
-          .lte("fecha", to)
-          .order("fecha", { ascending: true })
-          .order("id", { ascending: true }),
-      );
+      const query = (columns) =>
+        fetchAll(() =>
+          client
+            .from("shifts")
+            .select(columns)
+            .eq("cedula", cedula)
+            .gte("fecha", from)
+            .lte("fecha", to)
+            .order("fecha", { ascending: true })
+            .order("id", { ascending: true }),
+        );
+      try {
+        return await query(`${PUBLIC_SHIFT_COLUMNS}, segments`);
+      } catch (error) {
+        if (!isMissingColumn(error)) throw error;
+        logger?.warn?.("[horarios] shifts.segments is missing (apply migration 014); answering without segments");
+        return query(PUBLIC_SHIFT_COLUMNS);
+      }
     },
 
     /**
@@ -200,23 +229,34 @@ export function createHorariosRepo(client) {
       });
     },
 
-    saveWeek: ({ sedeId, weekStart, expectedVersion, cedulas, shifts, actor }) =>
-      rpc(client, "shifts_save_week", {
-        p_sede: sedeId,
-        p_week: weekStart,
-        p_expected_version: expectedVersion ?? 0,
-        p_cedulas: cedulas,
-        p_shifts: shifts.map(toRpcShift),
-        p_actor: actor,
-      }),
+    /** Resolves the week row; `segments` (optional [{ cedula, fecha, segments }]) goes in the same transaction (014). */
+    async saveWeek({ sedeId, weekStart, expectedVersion, cedulas, shifts, actor, segments = null }) {
+      const { data, segmentsSaved } = await rpcWithSegments(client, {
+        name: "shifts_save_week",
+        args: {
+          p_sede: sedeId,
+          p_week: weekStart,
+          p_expected_version: expectedVersion ?? 0,
+          p_cedulas: cedulas,
+          p_shifts: shifts.map(toRpcShift),
+          p_actor: actor,
+        },
+        segments,
+        logger,
+      });
+      return segmentsSaved ? { ...data, segmentsSaved } : data;
+    },
 
-    publishWeek: ({ sedeId, weekStart, expectedVersion, actor }) =>
-      rpc(client, "shifts_publish_week", {
-        p_sede: sedeId,
-        p_week: weekStart,
-        p_expected_version: expectedVersion,
-        p_actor: actor,
-      }),
+    /** Like saveWeek: with `segments` the migration-014 RPC freezes them atomically; `segmentsSaved` tells which ran. */
+    async publishWeek({ sedeId, weekStart, expectedVersion, actor, segments = null }) {
+      const { data, segmentsSaved } = await rpcWithSegments(client, {
+        name: "shifts_publish_week",
+        args: { p_sede: sedeId, p_week: weekStart, p_expected_version: expectedVersion, p_actor: actor },
+        segments,
+        logger,
+      });
+      return { ...(data ?? {}), segmentsSaved };
+    },
 
     unpublishWeek: ({ sedeId, weekStart, expectedVersion, actor }) =>
       rpc(client, "shifts_unpublish_week", {

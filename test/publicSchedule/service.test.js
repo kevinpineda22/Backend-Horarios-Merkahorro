@@ -34,8 +34,32 @@ test("maps a worked day: HH:MM times, hours net of break, lunch and break minute
     horas: 8,
     descansoMinutos: 60,
     almuerzo: "12:00",
+    segmentos: null, // not frozen (older publication)
     festivo: null,
   });
+});
+
+test("exposes the frozen caja/surtido split as segmentos { rol, desde, hasta } and nothing else of the row", async () => {
+  const segments = [
+    { role: "caja", from: "08:00", to: "12:00" },
+    { role: "surtido", from: "13:00", to: "17:00" },
+  ];
+  const { service } = build({
+    shifts: [
+      shiftRow({ segments }),
+      shiftRow({ fecha: "2026-11-11", segments: [] }),
+      shiftRow({ fecha: "2026-11-12", tipo: "DESCANSO", start_time: null, end_time: null, break_minutes: 0, lunch_start: null, segments }),
+    ],
+  });
+  const { data } = await call(service);
+  const [worked, empty, rest] = data.semanas[0].dias;
+  assert.deepEqual(worked.segmentos, [
+    { rol: "caja", desde: "08:00", hasta: "12:00" },
+    { rol: "surtido", desde: "13:00", hasta: "17:00" },
+  ]);
+  assert.equal(empty.segmentos, null);
+  assert.equal(rest.segmentos, null); // rest days never carry a split
+  assert.ok(!JSON.stringify(data).includes('"role"'), "the internal column shape must not leak");
 });
 
 test("rest days carry no times or hours; holidays are named; shifts crossing midnight count correctly", async () => {

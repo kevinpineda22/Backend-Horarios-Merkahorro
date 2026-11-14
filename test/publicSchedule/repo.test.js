@@ -125,3 +125,26 @@ test("empleados.findActiveByCedula normalizes the input and only knows active ro
   assert.equal(await service.findActiveByCedula("444444"), null);
   assert.equal(await service.findActiveByCedula("999999"), null);
 });
+
+test("listShiftsByCedulaInRange also selects the frozen segments, and falls back without them while migration 014 is missing", async () => {
+  const warnings = [];
+  let calls = 0;
+  const selects = [];
+  const q = {
+    select: (cols) => (selects.push(cols), q),
+    eq: () => q, gte: () => q, lte: () => q, order: () => q,
+    range: async () => (++calls === 1 ? { data: null, error: { code: "42703", message: 'column "segments" does not exist' } } : { data: [{ schedule_id: "s1" }], error: null }),
+  };
+  const repo = createHorariosRepo({ from: () => q }, { logger: { warn: (m) => warnings.push(m) } });
+  const rows = await repo.listShiftsByCedulaInRange({ cedula: "123456", from: "2026-10-12", to: "2027-01-10" });
+  assert.equal(rows.length, 1);
+  assert.ok(selects[0].split(",").map((c) => c.trim()).includes("segments"));
+  assert.ok(!selects[1].includes("segments"));
+  assert.equal(warnings.length, 1);
+});
+
+test("listShiftsByCedulaInRange rethrows any other database error", async () => {
+  const q = { select: () => q, eq: () => q, gte: () => q, lte: () => q, order: () => q, range: async () => ({ data: null, error: { code: "XX000", message: "boom" } }) };
+  const repo = createHorariosRepo({ from: () => q }, { logger: { warn() {} } });
+  await assert.rejects(repo.listShiftsByCedulaInRange({ cedula: "1", from: "a", to: "b" }), { code: "XX000" });
+});

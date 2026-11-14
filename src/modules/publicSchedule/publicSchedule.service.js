@@ -23,6 +23,12 @@ function publicNovedadLabel(tipo) {
   return NOVEDAD_TYPES.includes(tipo) ? tipo : "Novedad";
 }
 
+// Frozen caja/surtido split (migration 014) -> [{ rol, desde, hasta }]; null when the shift has none (older publications).
+function toSegmentos(row) {
+  if (row.tipo !== "TRABAJO" || !Array.isArray(row.segments) || row.segments.length === 0) return null;
+  return row.segments.map((s) => ({ rol: s.role, desde: s.from, hasta: s.to }));
+}
+
 /** One shift row -> the minimal public day. Observacion, ids and audit columns never get here. */
 function toDay(row) {
   const worked = row.tipo === "TRABAJO";
@@ -38,6 +44,7 @@ function toDay(row) {
     horas,
     descansoMinutos: breakMinutes,
     almuerzo: worked ? toHHMM(row.lunch_start) : null,
+    segmentos: toSegmentos(row), // caja/surtido split frozen at publication, or null
     festivo: getHoliday(row.fecha), // holiday name or null; Sundays are derivable from `fecha`
   };
 }

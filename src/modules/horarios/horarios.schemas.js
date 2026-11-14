@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isoDow, toEpochDay } from "../sugerido/domain/dates.js";
 import { TIPOS } from "./domain/weekPayload.js";
+import { SEGMENT_ROLES } from "./domain/segments.js";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CEDULA_RE = /^[0-9]{5,15}$/;
@@ -56,6 +57,20 @@ const shiftIn = z.object({
   observacion: optionalText(500),
 });
 
+// Frozen caja/surtido split (migration 014), computed by the client: [{ cedula, fecha, segments: [{ role, from, to }] }].
+// Shape and grid only; that it fits the stored shift is checked by the service (domain/segments.js), which drops what does not.
+export const MAX_SEGMENTS_PER_SHIFT = 48;
+const segmentFrom = z.string().regex(/^([01]\d|2[0-3]):(00|15|30|45)$/, "Hora inválida (HH:MM en intervalos de 15 minutos)");
+const segmentTo = z.string().regex(/^(([01]\d|2[0-3]):(00|15|30|45)|24:00)$/, "Hora inválida (HH:MM en intervalos de 15 minutos)");
+const segmentIn = z.object({
+  role: z.enum(SEGMENT_ROLES, { errorMap: () => ({ message: "role debe ser caja o surtido" }) }),
+  from: segmentFrom,
+  to: segmentTo,
+});
+export const segmentsBodySchema = z
+  .array(z.object({ cedula, fecha: date, segments: z.array(segmentIn).max(MAX_SEGMENTS_PER_SHIFT, `No puedes enviar más de ${MAX_SEGMENTS_PER_SHIFT} segmentos por turno`) }))
+  .max(MAX_SHIFTS, `No puedes enviar más de ${MAX_SHIFTS} turnos`);
+
 export const saveBodySchema = z.object({
   // null/absent means "the week was never saved" (version 0).
   expectedVersion: z
@@ -70,6 +85,8 @@ export const saveBodySchema = z.object({
     .max(MAX_CEDULAS, `No puedes enviar más de ${MAX_CEDULAS} cédulas`)
     .refine((list) => new Set(list).size === list.length, "Hay cédulas repetidas"),
   shifts: z.array(shiftIn).max(MAX_SHIFTS, `No puedes enviar más de ${MAX_SHIFTS} turnos`),
+  // Only used when the week is already PUBLICADO (drafts get their split at publish).
+  segments: segmentsBodySchema.nullish(),
 });
 
 // What the leader saw when publishing (migration 013): the recommendation (cashiers needed per 15-minute slot, after
@@ -98,6 +115,8 @@ export const publishBodySchema = z.object({
     .min(1, "Solo se puede publicar un horario ya guardado"),
   // Lenient on purpose: a malformed snapshot is dropped (null) instead of rejecting the publication.
   snapshot: z.object({ recommendation: recommendationSnapshot.nullish(), suggested: suggestedSnapshot.nullish() }).nullish().catch(null),
+  // Strict, unlike the snapshot: the client generates it, so a malformed one is a bug worth a 400 VALIDATION_ERROR.
+  segments: segmentsBodySchema.nullish(),
 });
 
 export const unpublishBodySchema = z.object({

@@ -4,6 +4,7 @@ import { addDays } from "../sugerido/domain/dates.js";
 import { normalizeWeekPayload } from "./domain/weekPayload.js";
 import { publishBlockers, weekWarnings } from "./domain/weekRules.js";
 import { diffSnapshotRows } from "./domain/snapshotDiff.js";
+import { sanitizeSegmentsForShifts } from "./domain/segments.js";
 
 const WRITER_ROLES = ["admin", "planner"];
 
@@ -99,6 +100,13 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
       logger?.error?.("[horarios] publish snapshot not saved", { sedeId: schedule.sede_id, weekStart: schedule.week_start, message: err?.message });
       return false;
     }
+  }
+
+  /** Segments the client sent -> only those that fit the shifts; null when there is nothing to freeze. */
+  function freezableSegments(shifts, input, context) {
+    const { items, dropped } = sanitizeSegmentsForShifts(shifts, input);
+    if (dropped) logger?.warn?.("[horarios] segments dropped: they do not fit the shifts", { ...context, dropped });
+    return Array.isArray(input) ? items : null;
   }
 
   const permissionsFor = (access, sedeId) => {
@@ -208,7 +216,7 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
       );
     },
 
-    async save(access, user, sedeId, weekStart, { expectedVersion, cedulas, shifts }) {
+    async save(access, user, sedeId, weekStart, { expectedVersion, cedulas, shifts, segments = null }) {
       assertCanWrite(access, sedeId);
       await assertSede(sedeId);
       const normalized = normalizeWeekPayload({ weekStart, cedulas, shifts });
@@ -233,7 +241,9 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
         }
       }
 
-      await repo.saveWeek({ sedeId, weekStart, expectedVersion, cedulas, shifts: normalized, actor: user.id });
+      // Only an already published week keeps a frozen split; the saved shifts are the truth the segments must fit.
+      const frozen = current?.state === "PUBLICADO" ? freezableSegments(normalized, segments, { sedeId, weekStart }) : null;
+      await repo.saveWeek({ sedeId, weekStart, expectedVersion, cedulas, shifts: normalized, actor: user.id, segments: frozen });
 
       const nameOf = nameResolver();
       const saved = await repo.findSchedule(sedeId, weekStart);
@@ -241,7 +251,7 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
       return { schedule: await toScheduleDto(saved, sedeId, weekStart, nameOf), shifts: rows.map(toShiftDto), warnings };
     },
 
-    async publish(access, user, sedeId, weekStart, { expectedVersion, snapshot = null }) {
+    async publish(access, user, sedeId, weekStart, { expectedVersion, snapshot = null, segments = null }) {
       assertCanWrite(access, sedeId);
       await assertSede(sedeId);
       const nameOf = nameResolver();
@@ -265,7 +275,8 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
         throw err;
       }
 
-      const stored = (await repo.listShifts(schedule.id)).map(toRuleRow);
+      const storedRows = await repo.listShifts(schedule.id);
+      const stored = storedRows.map(toRuleRow);
       const scope = workingCedulas(stored);
       const others = scope.length ? await neighborRows(scope, weekStart, schedule.id) : [];
       const ruleRows = [...stored.filter((r) => scope.includes(r.cedula)), ...others.map(toRuleRow)];
@@ -277,7 +288,9 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
         throw err;
       }
 
-      const result = await repo.publishWeek({ sedeId, weekStart, expectedVersion, actor: user.id });
+      // Atomic with the state change (migration 014). Absent segments = the old publish, which also works without 014.
+      const frozen = freezableSegments(storedRows.map(toShiftDto), segments, { sedeId, weekStart });
+      const result = await repo.publishWeek({ sedeId, weekStart, expectedVersion, actor: user.id, segments: frozen });
       const published = await repo.findSchedule(sedeId, weekStart);
       const snapshotSaved = result?.noop ? false : await saveSnapshot(published, user, snapshot);
       return {
@@ -285,6 +298,7 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
         warnings: weekWarnings(ruleRows, weekStart, scope),
         alreadyPublished: Boolean(result?.noop),
         snapshotSaved,
+        segmentsSaved: Boolean(result?.segmentsSaved),
       };
     },
 

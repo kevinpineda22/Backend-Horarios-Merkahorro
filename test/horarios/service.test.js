@@ -264,7 +264,7 @@ test("hours worked in another sede block the publication", async () => {
 test("a clean publish calls the RPC with the expected version and returns the new state", async () => {
   const { service, repo } = fakes({ schedule: stored(), rows: ready() });
   const out = await service.publish(access.planner, user(PLANNER), "copacabana", W, { expectedVersion: 1 });
-  assert.deepEqual(called(repo, "publishWeek")[0][1], { sedeId: "copacabana", weekStart: W, expectedVersion: 1, actor: PLANNER });
+  assert.deepEqual(called(repo, "publishWeek")[0][1], { sedeId: "copacabana", weekStart: W, expectedVersion: 1, actor: PLANNER, segments: null });
   assert.equal(out.alreadyPublished, false);
   assert.equal(out.schedule.state, "PUBLICADO");
   assert.equal(out.schedule.version, 2);

@@ -205,6 +205,16 @@ SIESA lists some people as CAJERO / CAJERA / CAJERO - SURTIDOR who today only wo
 - **Auth:** viewer 403 `FORBIDDEN_ROLE`; admin anywhere; planner only if the employee's current sede (the directory's `sedeId`) is in the planner's `sede_ids` (unscoped planner = every sede), else 403 `FORBIDDEN_SEDE`; employees with an unmapped sede only by admins or unscoped planners. 404 `EMPLEADO_NOT_FOUND` if the cedula is not an active employee of the directory. 400 `VALIDATION_ERROR` for a bad cedula or body.
 - **Sugerido:** `staffPort.getCashierPool` skips rows with `excluidoDeCaja === true`, so a run's `inputs.poolSize` and every slot's `available` drop them (applies to NEW runs, like any pool change). Payroll is NOT changed: it pays the saved shifts regardless. The scheduler screen still lists the person in the empleados directory; the frontend decides how to show her.
 
+### Frozen caja/surtido split (migration 014, branch `feat/frozen-shift-segments`, not applied, not pushed)
+
+The scheduler computes who is on caja and who on surtido on the fly (frontend `seatDay`). Employees could not see it, so the leader's split is frozen when the week is published and shown on the public "mi horario" page. The backend never computes it: it stores what the client sends.
+
+- **Migration (`db/migrations/014_shift_segments.sql`, verify `db/verification/014_shift_segments_verify.sql`, rollback `db/migrations/rollback/014_shift_segments.down.sql`):** `shifts.segments jsonb null` (CHECK: array, TRABAJO only). Canonical form `[{ "role": "caja"|"surtido", "from": "HH:MM", "to": "HH:MM" }]`, ordered, 15-minute grid, inside the shift, gaps allowed (lunch). New overloads `shifts_publish_week(text, date, int, uuid, jsonb)` and `shifts_save_week(text, date, int, text[], jsonb, uuid, jsonb)` call the old functions and store the segments in the same transaction (the old signatures stay callable). A trigger resets a shift's segments when its tipo/times/break/lunch change without new segments; another clears the week's segments on unpublish.
+- **Publish body:** `{ expectedVersion, snapshot?, segments?: [{ cedula, fecha, segments: [{ role, from, to }] }] }`. Response adds `segmentsSaved: boolean`. **Save body** accepts the same optional `segments`; they are only applied when the week is already PUBLICADO (drafts get their split at publish; a draft save ignores them). Shifts not listed get null.
+- **Validation:** zod rejects a malformed shape with 400 `VALIDATION_ERROR` (role enum, HH:MM on the 15-minute grid, "24:00" only as `to`, max 48 per shift). That a split FITS its stored shift (inside it, ordered, no overlap, TRABAJO day) is checked by the service (`domain/segments.js`); entries that do not fit are dropped with a warning and stored as null instead of failing the publication.
+- **Public endpoint:** every day of `POST /api/public/horarios/consulta` has `segmentos: [{ rol, desde, hasta }] | null` (null for rest days, drafts and weeks published before 014).
+- **Fallback (chosen):** the backend works whichever is deployed first. When PostgREST cannot find the new functions (PGRST202 / 42883) publish/save fall back to the old RPC without segments and log a warning; when the column is missing (42703 / PGRST204) the public query retries without it. Weeks published in that window have no split. Preferred order anyway: **apply 014 BEFORE deploying the backend.**
+
 ### Environment variables (names only — never commit values)
 
 | Where | Variable | Notes |
@@ -244,6 +254,7 @@ Full task list with file names: Engram `sdd/sugerido-cajeras/tasks` (see below).
 8. Published schedules list (009): apply `009_shifts_people_counts.sql` -> run its verify script -> deploy Backend-Horarios -> deploy the frontend screen.
 9. Unpublish (010): apply `010_unpublish_schedule.sql` (after 004 and 005) -> run its verify script -> deploy Backend-Horarios -> deploy the frontend.
 10. Cashier exclusion (011): apply `011_cashier_exclusions.sql` -> run its verify script -> deploy Backend-Horarios (GET /empleados breaks before 011) -> deploy the frontend.
+11. Frozen split (014): apply `014_shift_segments.sql` -> run its verify script -> deploy Backend-Horarios -> deploy the frontend (the backend tolerates the opposite order but loses the split of weeks published in between).
 
 ## Working agreement
 
