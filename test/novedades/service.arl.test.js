@@ -120,7 +120,7 @@ test("create: ARL rules are enforced in the service too (defense in depth)", asy
 
 test("create non-ARL: subtipo and sede_nombre stored; no responsable, no files, no storage lookups", async () => {
   const { svc, repo, storage } = make();
-  const { data } = await svc.create(admin, user, { ...base, tipo: "Licencias", subtipo: "No remunerada", detalles: { dias: 2, motivo: "Calamidad" }, sedeId: null, sedeNombre: "CORPORATIVO GENERAL" });
+  const { data } = await svc.create(admin, user, { ...base, tipo: "Licencias", subtipo: "No remunerada", detalles: { dias: 12, motivo: "Calamidad", liderAprueba: "1036123456" }, sedeId: null, sedeNombre: "CORPORATIVO GENERAL" });
   const ins = repo.calls.insert[0];
   assert.equal(ins.subtipo, "No remunerada");
   assert.equal(ins.sede_nombre, "CORPORATIVO GENERAL");
@@ -226,7 +226,7 @@ test("update: switching tipo to Incapacidades/Licencias requires a subtipo", asy
   const { svc, repo } = make({ seed: [row({ id: ID_A })] });
   await rejects(svc.update(admin, user, ID_A, { tipo: "Incapacidades" }), 400, "VALIDATION_ERROR");
   await rejects(svc.update(admin, user, ID_A, { tipo: "Licencias", subtipo: "ARL" }), 400, "VALIDATION_ERROR");
-  await svc.update(admin, user, ID_A, { tipo: "Licencias", subtipo: "Remunerada", detalles: { dias: 2, motivo: "Calamidad" } });
+  await svc.update(admin, user, ID_A, { tipo: "Licencias", subtipo: "Remunerada", detalles: { dias: 6, motivo: "Calamidad", liderAprueba: "1036123456" } });
   assert.equal(repo.calls.update[0].patch.subtipo, "Remunerada");
 });
 

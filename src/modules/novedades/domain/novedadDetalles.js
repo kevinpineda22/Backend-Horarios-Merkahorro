@@ -90,16 +90,30 @@ function enfermedadGeneral(need, range) {
     });
 }
 
-function licencias(need) {
+// The leader who approves a licencia, as a cédula: dots and spaces are dropped, 5 to 15 digits remain.
+const LIDER_MSG = "La cédula del líder que aprueba es obligatoria";
+const liderCedula = z
+  .string({ required_error: LIDER_MSG, invalid_type_error: LIDER_MSG })
+  .transform((v) => v.replace(/[\s.]/g, ""))
+  .refine((v) => /^\d{5,15}$/.test(v), "La cédula del líder debe tener solo números (5 a 15 dígitos)");
+
+function licencias(need, range) {
   const diasMsg = "Los días de la licencia deben ser un número entero mayor a 0";
   return z
     .object({
       dias: need(z.number({ required_error: diasMsg, invalid_type_error: diasMsg }).int(diasMsg).positive(diasMsg).max(MAX_DIAS_LICENCIA, `Los días de la licencia no pueden superar ${MAX_DIAS_LICENCIA}`)),
       motivo: need(text("El motivo", MAX_TEXT, "El motivo de la licencia es obligatorio")),
-      liderAprueba: optionalText("El líder que aprueba", MAX_LIDER),
+      // Required for new data; a legacy row (lenient) keeps the free text it had.
+      liderAprueba: need(liderCedula),
       fechaAprobacion: optionalDate,
     })
-    .strict();
+    .strict()
+    .superRefine((d, ctx) => {
+      // The days are the inclusive days between the dates (the form fills them in from the dates).
+      if (!Number.isInteger(d.dias) || d.dias < 1 || d.dias > MAX_DIAS_LICENCIA || !isIsoDate(range.fechaInicio) || !isIsoDate(range.fechaFin)) return;
+      const days = toEpochDay(range.fechaFin) - toEpochDay(range.fechaInicio) + 1;
+      if (days > 0 && d.dias !== days) ctx.addIssue({ code: "custom", path: ["dias"], message: `Los días de la licencia deben coincidir con las fechas (${days})` });
+    });
 }
 
 function permisos(need, range) {
@@ -217,7 +231,7 @@ function schemaFor({ tipo, subtipo, fechaInicio, fechaFin }, lenient) {
     case "Incapacidades":
       return subtipo === "Enfermedad general" ? enfermedadGeneral(need, range) : empty();
     case "Licencias":
-      return licencias(need);
+      return licencias(need, range);
     case "Permisos":
       return permisos(need, range);
     case "Permisos académicos":

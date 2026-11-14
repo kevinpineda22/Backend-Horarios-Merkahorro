@@ -267,10 +267,10 @@ test("create: Estudio and Día de la Familia are rejected; Permisos académicos 
     const acad = { modo: "libre", dias: [{ fecha: "2026-11-03" }, { fecha: "2026-11-14" }], detalle: "Examen final" };
     assert.equal((await call("POST", "/", "t-planner", { ...body, tipo: "Permisos académicos", detalles: acad })).status, 201);
     assert.equal((await call("POST", "/", "t-planner", { ...body, tipo: "Licencias", detalles: {} })).status, 400);
-    const ok = await call("POST", "/", "t-planner", { ...body, tipo: "Licencias", subtipo: "Remunerada", detalles: { dias: 3, motivo: "Calamidad" } });
+    const ok = await call("POST", "/", "t-planner", { ...body, tipo: "Licencias", subtipo: "Remunerada", detalles: { dias: 12, motivo: "Calamidad", liderAprueba: "1036123456" } });
     assert.equal(ok.status, 201);
     assert.equal(ok.json.data.subtipo, "Remunerada");
-    assert.deepEqual(ok.json.data.detalles, { dias: 3, motivo: "Calamidad" });
+    assert.deepEqual(ok.json.data.detalles, { dias: 12, motivo: "Calamidad", liderAprueba: "1036123456" });
     const eg = { ...body, tipo: "Incapacidades", subtipo: "Enfermedad general", observacion: "Reposo", adjuntoPath: ADJ, fechaFin: "2026-11-05", detalles: { duracion: "Menor o igual a 3 días" } };
     assert.equal((await call("POST", "/", "t-planner", eg)).status, 201);
   }));

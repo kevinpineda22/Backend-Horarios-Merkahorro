@@ -15,7 +15,7 @@ const VALID = {
   Vacaciones: { detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } },
   Permisos: { detalles: { motivo: "Cita médica" } },
   "Permisos académicos": { detalles: { modo: "libre", dias: [{ fecha: "2026-11-03" }, { fecha: "2026-11-14" }], detalle: "Examen final" } },
-  Licencias: { subtipo: "Remunerada", detalles: { dias: 2, motivo: "Calamidad" } },
+  Licencias: { subtipo: "Remunerada", detalles: { dias: 12, motivo: "Calamidad", liderAprueba: "1036123456" } },
   Incapacidades: { subtipo: "Enfermedad general", fechaFin: "2026-11-05", observacion: "Reposo", adjuntoPath: ADJ, detalles: { duracion: "Menor o igual a 3 días" } },
 };
 const valid = (tipo, extra = {}) => ({ ...base, detalles: {}, tipo, ...VALID[tipo], ...extra });
@@ -307,6 +307,7 @@ test("create: every tipo validates its detalles with Spanish messages at body.de
   assert.deepEqual(issuesOf(createNovedadSchema, { ...base, tipo: "Permisos", detalles: {} }), ["detalles.motivo: El motivo del permiso es obligatorio"]);
   assert.deepEqual(issuesOf(createNovedadSchema, valid("Licencias", { detalles: {} })), [
     "detalles.dias: Los días de la licencia deben ser un número entero mayor a 0",
+    "detalles.liderAprueba: La cédula del líder que aprueba es obligatoria",
     "detalles.motivo: El motivo de la licencia es obligatorio",
   ]);
   assert.deepEqual(issuesOf(createNovedadSchema, valid("Incapacidades", { detalles: {} })), [
@@ -333,8 +334,8 @@ test("create: Permisos académicos days must match fechaInicio / fechaFin", () =
 });
 
 test("create: stored detalles are the normalized ones (trimmed, optionals dropped, days sorted)", () => {
-  const d = ok(createNovedadSchema, valid("Licencias", { detalles: { dias: 3, motivo: "  Duelo  ", liderAprueba: "", fechaAprobacion: null } }));
-  assert.deepEqual(d.detalles, { dias: 3, motivo: "Duelo" });
+  const d = ok(createNovedadSchema, valid("Licencias", { detalles: { dias: 12, motivo: "  Duelo  ", liderAprueba: "1.036.123.456", fechaAprobacion: null } }));
+  assert.deepEqual(d.detalles, { dias: 12, motivo: "Duelo", liderAprueba: "1036123456" });
   const a = ok(createNovedadSchema, valid("Permisos académicos", { detalles: { modo: "libre", dias: [{ fecha: "2026-11-14" }, { fecha: "2026-11-03" }], detalle: " x " } }));
   assert.deepEqual(a.detalles, { modo: "libre", dias: [{ fecha: "2026-11-03" }, { fecha: "2026-11-14" }], detalle: "x" });
 });

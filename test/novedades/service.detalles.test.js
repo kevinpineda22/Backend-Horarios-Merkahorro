@@ -51,7 +51,7 @@ test("create: the per-type rules are enforced in the service too, with body.deta
   assert.deepEqual(await details(svc.create(admin, user, { ...base, tipo: "Permisos", detalles: {} })), {
     "body.detalles.motivo": "El motivo del permiso es obligatorio",
   });
-  assert.deepEqual(await details(svc.create(admin, user, { ...base, tipo: "Licencias", subtipo: "Remunerada", detalles: { dias: 0, motivo: "m" } })), {
+  assert.deepEqual(await details(svc.create(admin, user, { ...base, tipo: "Licencias", subtipo: "Remunerada", detalles: { dias: 0, motivo: "m", liderAprueba: "1036123456" } })), {
     "body.detalles.dias": "Los días de la licencia deben ser un número entero mayor a 0",
   });
   const eg = { ...base, tipo: "Incapacidades", subtipo: "Enfermedad general", observacion: "Reposo", adjuntoPath: ADJ };
@@ -100,7 +100,7 @@ test("update: a legacy row (detalles {}) touched on tipo, subtipo or detalles mu
 
 test("update tipo: details of the previous tipo are dropped (not carried over) and the new ones are required", async () => {
   const { svc, repo } = make({ seed: [row({ detalles: { motivo: "m" } })] });
-  assert.deepEqual(Object.keys(await details(svc.update(admin, user, ID_A, { tipo: "Licencias", subtipo: "Remunerada" }))).sort(), ["body.detalles.dias", "body.detalles.motivo"]);
+  assert.deepEqual(Object.keys(await details(svc.update(admin, user, ID_A, { tipo: "Licencias", subtipo: "Remunerada" }))).sort(), ["body.detalles.dias", "body.detalles.liderAprueba", "body.detalles.motivo"]);
   assert.deepEqual(Object.keys(await details(svc.update(admin, user, ID_A, { tipo: "Vacaciones" }))).sort(), ["body.detalles.fechaRegreso", "body.detalles.periodo"]);
   const { data } = await svc.update(admin, user, ID_A, { tipo: "Vacaciones", detalles: { periodo: "2026", fechaRegreso: "2026-11-16" } });
   assert.deepEqual(repo.calls.update[0].patch.detalles, { periodo: "2026", fechaRegreso: "2026-11-16" }, "nothing of the previous tipo is carried over");

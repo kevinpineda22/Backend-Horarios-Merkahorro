@@ -71,29 +71,41 @@ test("Enfermedad general: a decomposed (NFD) label is normalized", () => {
 });
 
 // ---- Licencias ---------------------------------------------------------------------------------
-test("Licencias: dias (integer > 0) and motivo are required", () => {
+const LIDER = "1036123456";
+test("Licencias: dias (integer > 0), motivo and the leader's cédula are required", () => {
   const m = issueMap(lic({}));
   assert.equal(m["detalles.dias"], "Los días de la licencia deben ser un número entero mayor a 0");
   assert.equal(m["detalles.motivo"], "El motivo de la licencia es obligatorio");
-  for (const dias of [0, -1, 1.5, "3", null]) assert.deepEqual(paths(lic({ dias, motivo: "m" })), ["detalles.dias"], String(dias));
-  assert.deepEqual(paths(lic({ dias: 2, motivo: "   " })), ["detalles.motivo"]);
-  assert.deepEqual(paths(lic({ dias: 366, motivo: "m" })), []);
-  assert.deepEqual(paths(lic({ dias: 367, motivo: "m" })), ["detalles.dias"]);
+  assert.equal(m["detalles.liderAprueba"], "La cédula del líder que aprueba es obligatoria");
+  for (const dias of [0, -1, 1.5, "3", null]) assert.deepEqual(paths(lic({ dias, motivo: "m", liderAprueba: LIDER })), ["detalles.dias"], String(dias));
+  assert.deepEqual(paths(lic({ dias: 5, motivo: "   ", liderAprueba: LIDER })), ["detalles.motivo"]);
+  assert.deepEqual(paths(lic({ dias: 367, motivo: "m", liderAprueba: LIDER })), ["detalles.dias"]);
 });
 
-test("Licencias: motivo <= 1000, liderAprueba <= 120, fechaAprobacion a real date; optionals may be null/empty", () => {
-  assert.deepEqual(paths(lic({ dias: 2, motivo: "x".repeat(1001) })), ["detalles.motivo"]);
-  assert.deepEqual(paths(lic({ dias: 2, motivo: "x".repeat(1000) })), []);
-  assert.deepEqual(paths(lic({ dias: 2, motivo: "m", liderAprueba: "x".repeat(121) })), ["detalles.liderAprueba"]);
-  assert.deepEqual(paths(lic({ dias: 2, motivo: "m", fechaAprobacion: "2026-02-30" })), ["detalles.fechaAprobacion"]);
-  assert.deepEqual(paths(lic({ dias: 2, motivo: "m", fechaAprobacion: "03/11/2026" })), ["detalles.fechaAprobacion"]);
-  assert.deepEqual(okData(lic({ dias: 2, motivo: "  Calamidad  ", liderAprueba: " Ana ", fechaAprobacion: "2026-11-02" })), {
-    dias: 2,
+test("Licencias: dias must be the inclusive days between the dates", () => {
+  assert.deepEqual(paths(lic({ dias: 5, motivo: "m", liderAprueba: LIDER })), []);
+  assert.equal(issueMap(lic({ dias: 2, motivo: "m", liderAprueba: LIDER }))["detalles.dias"], "Los días de la licencia deben coincidir con las fechas (5)");
+});
+
+test("Licencias: the leader is a cédula (digits; dots and spaces are dropped)", () => {
+  for (const liderAprueba of ["Ana", "1234", "1".repeat(16), "12a45678"]) {
+    assert.deepEqual(paths(lic({ dias: 5, motivo: "m", liderAprueba })), ["detalles.liderAprueba"], liderAprueba);
+  }
+  assert.equal(okData(lic({ dias: 5, motivo: "m", liderAprueba: " 1.036.123.456 " })).liderAprueba, "1036123456");
+});
+
+test("Licencias: motivo <= 1000, fechaAprobacion a real date and optional", () => {
+  assert.deepEqual(paths(lic({ dias: 5, motivo: "x".repeat(1001), liderAprueba: LIDER })), ["detalles.motivo"]);
+  assert.deepEqual(paths(lic({ dias: 5, motivo: "x".repeat(1000), liderAprueba: LIDER })), []);
+  assert.deepEqual(paths(lic({ dias: 5, motivo: "m", liderAprueba: LIDER, fechaAprobacion: "2026-02-30" })), ["detalles.fechaAprobacion"]);
+  assert.deepEqual(paths(lic({ dias: 5, motivo: "m", liderAprueba: LIDER, fechaAprobacion: "03/11/2026" })), ["detalles.fechaAprobacion"]);
+  assert.deepEqual(okData(lic({ dias: 5, motivo: "  Calamidad  ", liderAprueba: LIDER, fechaAprobacion: "2026-11-02" })), {
+    dias: 5,
     motivo: "Calamidad",
-    liderAprueba: "Ana",
+    liderAprueba: LIDER,
     fechaAprobacion: "2026-11-02",
   });
-  assert.deepEqual(okData(lic({ dias: 2, motivo: "m", liderAprueba: null, fechaAprobacion: "" })), { dias: 2, motivo: "m" });
+  assert.deepEqual(okData(lic({ dias: 5, motivo: "m", liderAprueba: LIDER, fechaAprobacion: "" })), { dias: 5, motivo: "m", liderAprueba: LIDER });
 });
 
 // ---- Permisos ----------------------------------------------------------------------------------
