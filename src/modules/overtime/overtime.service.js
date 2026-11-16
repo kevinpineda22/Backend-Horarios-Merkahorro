@@ -1,5 +1,6 @@
 import { createHttpError } from "../../shared/http/HttpError.js";
 import { canAccessSede } from "../../shared/http/authorize.js";
+import { decisionEmail, requestEmail } from "./overtimeEmail.js";
 
 // Extra overtime requests (migration 014). The team of a sede has 10 h of overtime a week; when a leader needs more,
 // they ask for a number of hours with a reason. The approvers (Anny, Ramiro) get an e-mail, open Autorizaciones in the
@@ -14,9 +15,6 @@ export function parseApprovers(value) {
   return list.length ? list : [...DEFAULT_APPROVERS];
 }
 
-const escapeHtml = (text) =>
-  String(text ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const hoursText = (hours) => `${Number(hours).toLocaleString("es-CO", { maximumFractionDigits: 1 })} h`;
 const MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 const weekText = (weekStart) => {
   const [y, m, d] = weekStart.split("-").map(Number);
@@ -96,14 +94,7 @@ export function createOvertimeService({ repo, profilesRepo, mailer, approvers = 
       const who = request.requestedBy ?? user.email ?? "Un líder";
       const emailSent = await sendSafely({
         to: [...approverSet],
-        subject: `Solicitud de ${hoursText(hours)} extra · ${sede.nombre} · semana del ${weekText(weekStart)}`,
-        text: `${who} solicita ${hoursText(hours)} extra para ${sede.nombre}, semana del ${weekText(weekStart)}. Motivo: ${motivo}. Revísala en ${link}`,
-        html: [
-          `<p><strong>${escapeHtml(who)}</strong> solicita <strong>${escapeHtml(hoursText(hours))} extra</strong> para el equipo de cajas.</p>`,
-          `<ul><li>Sede: <strong>${escapeHtml(sede.nombre)}</strong></li><li>Semana: del ${escapeHtml(weekText(weekStart))}</li><li>Horas solicitadas: ${escapeHtml(hoursText(hours))} (además de las 10 h semanales del equipo)</li><li>Motivo: ${escapeHtml(motivo)}</li></ul>`,
-          `<p>Basta con que uno de los aprobadores la apruebe o la rechace.</p>`,
-          `<p><a href="${escapeHtml(link)}">Revisar en Autorizaciones</a></p>`,
-        ].join(""),
+        ...requestEmail({ requester: who, sedeNombre: sede.nombre, weekText: weekText(weekStart), hours, motivo, link }),
       });
       return { request, emailSent };
     },
@@ -151,13 +142,7 @@ export function createOvertimeService({ repo, profilesRepo, mailer, approvers = 
         const approved = decision === "APROBADA";
         emailSent = await sendSafely({
           to: [leader.correo],
-          subject: `Horas extra ${approved ? "aprobadas" : "rechazadas"} · ${request.sedeNombre} · semana del ${weekText(decided.weekStart)}`,
-          text: `${request.decidedBy ?? "Un aprobador"} ${approved ? "aprobó" : "rechazó"} tu solicitud de ${hoursText(decided.hours)} extra.${comment ? ` Comentario: ${comment}` : ""}`,
-          html: [
-            `<p><strong>${escapeHtml(request.decidedBy ?? "Un aprobador")}</strong> ${approved ? "aprobó" : "rechazó"} tu solicitud de <strong>${escapeHtml(hoursText(decided.hours))} extra</strong> para ${escapeHtml(request.sedeNombre)}, semana del ${escapeHtml(weekText(decided.weekStart))}.</p>`,
-            comment ? `<p>Comentario: ${escapeHtml(comment)}</p>` : "",
-            approved ? "<p>Ya puedes usar esas horas al armar el horario de esa semana.</p>" : "",
-          ].join(""),
+          ...decisionEmail({ approver: request.decidedBy ?? "Un aprobador", approved, sedeNombre: request.sedeNombre, weekText: weekText(decided.weekStart), hours: decided.hours, comment }),
         });
       }
       return { request, emailSent };

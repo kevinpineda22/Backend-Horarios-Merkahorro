@@ -151,3 +151,30 @@ test("an approver's address that is not confirmed does not approve", async () =>
   assert.deepEqual(await service.me({ ...ANNY, emailConfirmed: false }), { isApprover: false });
   assert.deepEqual(await service.me({ ...ANNY, emailConfirmed: true }), { isApprover: true });
 });
+
+// ---------------------------------------------------------------- branded e-mails
+const { requestEmail, decisionEmail } = await import("../../src/modules/overtime/overtimeEmail.js");
+
+test("request e-mail: Merkahorro header, the hours, the data rows, the reason and the button to Autorizaciones; user text escaped", () => {
+  const mail = requestEmail({ requester: "Laura <b>", sedeNombre: "Las Vegas", weekText: "1 de febrero al 7 de febrero de 2027", hours: 2.5, motivo: "Prueba <script>", link: "https://merkahorro.com/horarios-merkahorro?vista=autorizaciones" });
+  assert.match(mail.subject, /^Solicitud de 2,5 h extra · Las Vegas · semana del 1 de febrero/);
+  assert.match(mail.html, /background:#210d65/);
+  assert.match(mail.html, />Merkahorro</);
+  assert.match(mail.html, /Revisar en Autorizaciones/);
+  assert.match(mail.html, /href="https:\/\/merkahorro\.com\/horarios-merkahorro\?vista=autorizaciones"/);
+  assert.match(mail.html, /Pendiente de aprobación/);
+  assert.ok(mail.html.includes("Laura &lt;b&gt;") && mail.html.includes("Prueba &lt;script&gt;"));
+  assert.ok(!mail.html.includes("<script>"));
+  assert.match(mail.text, /Laura <b> solicita 2,5 h extra/);
+});
+
+test("decision e-mail: approved is a violet pill, rejected grey; never green; the comment only when there is one", () => {
+  const ok = decisionEmail({ approver: "Anny", approved: true, sedeNombre: "Plaza", weekText: "x", hours: 4, comment: null });
+  assert.match(ok.subject, /^Horas extra aprobadas/);
+  assert.match(ok.html, /Aprobada/);
+  assert.ok(!ok.html.includes("Comentario"));
+  const no = decisionEmail({ approver: "Anny", approved: false, sedeNombre: "Plaza", weekText: "x", hours: 4, comment: "Sin presupuesto" });
+  assert.match(no.html, /Rechazada/);
+  assert.match(no.html, /Sin presupuesto/);
+  for (const html of [ok.html, no.html]) assert.doesNotMatch(html, /#16a34a|#22c55e|#166534|green/i);
+});
