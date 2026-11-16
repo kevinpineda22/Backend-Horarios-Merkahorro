@@ -1,5 +1,6 @@
 // Outgoing e-mail over the company's Office 365 SMTP, same variables as the other Merkahorro backends:
 // EMAIL_HOST (default smtp.office365.com), EMAIL_PORT (587), EMAIL_SECURE ("true" for 465), EMAIL_USER, EMAIL_PASS.
+// SMTP_HOST / SMTP_PORT / SMTP_SECURE are accepted as the same settings.
 // Without EMAIL_USER / EMAIL_PASS the mailer is disabled: send() throws MAIL_NOT_CONFIGURED and callers degrade.
 
 export function createMailer(env = process.env, { createTransport } = {}) {
@@ -11,9 +12,10 @@ export function createMailer(env = process.env, { createTransport } = {}) {
     if (transporter) return transporter;
     const factory = createTransport ?? (await import("nodemailer")).default.createTransport;
     transporter = factory({
-      host: env.EMAIL_HOST || "smtp.office365.com",
-      port: Number(env.EMAIL_PORT) || 587,
-      secure: env.EMAIL_SECURE === "true",
+      // EMAIL_* as in the other backends; SMTP_* also accepted (the name used in this project's .env).
+      host: env.EMAIL_HOST || env.SMTP_HOST || "smtp.office365.com",
+      port: Number(env.EMAIL_PORT || env.SMTP_PORT) || 587,
+      secure: (env.EMAIL_SECURE ?? env.SMTP_SECURE) === "true",
       auth: { user, pass },
       tls: { ciphers: "TLSv1.2" },
       // Short: a slow mail server must not hold the request (the row is already saved; the mail is best effort).

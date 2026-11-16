@@ -156,3 +156,12 @@ test("migration 014: requests table with one pending per sede-week, decision col
   assert.match(v, /rollback;$/);
   assert.ok(v.includes("all checks passed"));
 });
+
+test("mailer: SMTP_HOST / SMTP_PORT / SMTP_SECURE work like EMAIL_*; EMAIL_* wins when both are set", async () => {
+  const opts = [];
+  const make = (env) => createMailer({ EMAIL_USER: "u@x.co", EMAIL_PASS: "p", ...env }, { createTransport: (o) => (opts.push(o), { sendMail: async () => {} }) });
+  await make({ SMTP_HOST: "smtp.example.com", SMTP_PORT: "465", SMTP_SECURE: "true" }).send({ to: ["a@x.co"], subject: "s", html: "h" });
+  assert.deepEqual([opts[0].host, opts[0].port, opts[0].secure], ["smtp.example.com", 465, true]);
+  await make({ EMAIL_HOST: "mail.a.co", SMTP_HOST: "mail.b.co" }).send({ to: ["a@x.co"], subject: "s", html: "h" });
+  assert.deepEqual([opts[1].host, opts[1].port, opts[1].secure], ["mail.a.co", 587, false]);
+});
