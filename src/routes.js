@@ -27,6 +27,10 @@ import { createPayrollRepo } from "./modules/horarios/payroll.supabase.js";
 import { createPublicScheduleRouter } from "./modules/publicSchedule/publicSchedule.routes.js";
 import { createPublicScheduleService } from "./modules/publicSchedule/publicSchedule.service.js";
 import { getPool } from "./shared/db/pg.js";
+import { createMailer } from "./shared/email/mailer.js";
+import { createOvertimeRouter } from "./modules/overtime/overtime.routes.js";
+import { createOvertimeService, parseApprovers } from "./modules/overtime/overtime.service.js";
+import { createOvertimeRepo } from "./modules/overtime/overtime.supabase.js";
 
 /**
  * Builds the API router. `modules` maps a mount path to a ready router, so
@@ -100,6 +104,18 @@ export default createRoutes({
       service: empleadosService,
     }),
     // Mounted before "/horarios" so the shift router never sees payroll paths.
+    // Extra overtime requests: leaders ask, the approvers (OVERTIME_APPROVERS, by e-mail) decide in Autorizaciones.
+    "/overtime": createOvertimeRouter({
+      authenticate,
+      accessRepo,
+      service: createOvertimeService({
+        repo: createOvertimeRepo(lazyClient),
+        profilesRepo: createProfilesRepo(lazyClient),
+        mailer: createMailer(),
+        approvers: parseApprovers(process.env.OVERTIME_APPROVERS),
+        appUrl: process.env.APP_URL || "https://merkahorro.com",
+      }),
+    }),
     "/horarios/payroll": createPayrollRouter({
       authenticate,
       accessRepo,
