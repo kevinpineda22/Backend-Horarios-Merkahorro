@@ -239,7 +239,7 @@ test("route: planners (own sede) and admins (any sede) unpublish; the answer is 
     assert.equal(a.status, 200);
     assert.deepEqual(a.json, { data: { schedule: { state: "BORRADOR" } }, warnings: [] });
     assert.equal((await call(p("las-vegas"), "t-admin", BODY)).status, 200);
-    assert.deepEqual(calls[0], [{ role: "planner", sedeIds: ["copacabana"] }, { id: PLANNER, email: "x@x.co" }, "copacabana", W, { expectedVersion: 4 }]);
+    assert.deepEqual(calls[0], [{ role: "planner", sedeIds: ["copacabana"] }, { id: PLANNER, email: "x@x.co", emailConfirmed: true }, "copacabana", W, { expectedVersion: 4 }]);
     assert.equal(calls[1][2], "las-vegas");
   }));
 

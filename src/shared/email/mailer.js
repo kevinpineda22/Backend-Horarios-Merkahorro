@@ -16,6 +16,10 @@ export function createMailer(env = process.env, { createTransport } = {}) {
       secure: env.EMAIL_SECURE === "true",
       auth: { user, pass },
       tls: { ciphers: "TLSv1.2" },
+      // Short: a slow mail server must not hold the request (the row is already saved; the mail is best effort).
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 10000,
     });
     return transporter;
   }

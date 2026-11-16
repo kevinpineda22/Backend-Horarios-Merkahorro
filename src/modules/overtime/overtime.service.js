@@ -32,7 +32,8 @@ const weekText = (weekStart) => {
  */
 export function createOvertimeService({ repo, profilesRepo, mailer, approvers = DEFAULT_APPROVERS, appUrl = "https://merkahorro.com", logger = console }) {
   const approverSet = new Set(approvers.map((e) => e.toLowerCase()));
-  const isApprover = (user) => Boolean(user?.email) && approverSet.has(String(user.email).toLowerCase());
+  // Only a confirmed e-mail counts: someone who signs up with an approver's address without confirming it is not one.
+  const isApprover = (user) => Boolean(user?.email) && user.emailConfirmed !== false && approverSet.has(String(user.email).toLowerCase());
   const link = `${appUrl.replace(/\/+$/, "")}/horarios-merkahorro?vista=autorizaciones`;
 
   function profileResolver() {
@@ -136,6 +137,9 @@ export function createOvertimeService({ repo, profilesRepo, mailer, approvers = 
       assertApprover(user);
       const current = await repo.findById(id);
       if (!current) throw createHttpError(404, "No encontramos esa solicitud.", "OVERTIME_REQUEST_NOT_FOUND");
+      if (current.requestedBy === user.id) {
+        throw createHttpError(403, "No puedes decidir tu propia solicitud: la decide el otro aprobador.", "SELF_DECISION");
+      }
       const decided = current.status === "PENDIENTE" ? await repo.decide({ id, status: decision, decidedBy: user.id, comment }) : null;
       if (!decided) throw createHttpError(409, "Esta solicitud ya fue decidida por otro aprobador.", "OVERTIME_ALREADY_DECIDED");
       const profileOf = profileResolver();

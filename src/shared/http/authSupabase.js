@@ -29,7 +29,8 @@ export function createVerifyToken(client) {
       if (status >= 400 && status < 500 && status !== 429) return null;
       throw error;
     }
-    return data?.user ? { id: data.user.id, email: data.user.email } : null;
+    // emailConfirmed: an unconfirmed address must never grant e-mail based rights (overtime approvers).
+    return data?.user ? { id: data.user.id, email: data.user.email, emailConfirmed: Boolean(data.user.email_confirmed_at) } : null;
   };
 }
 
@@ -57,7 +58,7 @@ export function createAuthenticate({ verifyToken }) {
       );
     }
 
-    req.user = Object.freeze({ id: user.id, email: String(user.email || "").trim().toLowerCase() });
+    req.user = Object.freeze({ id: user.id, email: String(user.email || "").trim().toLowerCase(), emailConfirmed: user.emailConfirmed !== false });
     return next();
   };
 }

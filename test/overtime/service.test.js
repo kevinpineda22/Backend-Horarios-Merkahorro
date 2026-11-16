@@ -138,3 +138,16 @@ test("listForApprovers: approvers only, filtered by status, with the requester's
   assert.deepEqual(items.map((i) => [i.sedeId, i.sedeNombre, i.hours, i.requestedBy]), [["copacabana", "Principal Copacabana", 5, "Laura Líder"]]);
   await assert.rejects(service.listForApprovers(OTHER, { status: "PENDIENTE" }), code(403, "NOT_AN_APPROVER"));
 });
+
+test("decide: an approver never decides their own request (the other approver does)", async () => {
+  const { service } = setup();
+  const { request } = await service.request({ role: "admin", sedeIds: null }, ANNY, "copacabana", WEEK, { hours: 5, motivo: "x" });
+  await assert.rejects(service.decide(ANNY, request.id, { decision: "APROBADA" }), code(403, "SELF_DECISION"));
+  assert.equal((await service.decide(RAMIRO, request.id, { decision: "APROBADA" })).request.status, "APROBADA");
+});
+
+test("an approver's address that is not confirmed does not approve", async () => {
+  const { service } = setup();
+  assert.deepEqual(await service.me({ ...ANNY, emailConfirmed: false }), { isApprover: false });
+  assert.deepEqual(await service.me({ ...ANNY, emailConfirmed: true }), { isApprover: true });
+});

@@ -70,7 +70,7 @@ test("protected route: no token -> 401, invalid -> 401, valid -> 200, provider d
 
     const good = await fetch(`${base}/protected`, { headers: { Authorization: "Bearer good" } });
     assert.equal(good.status, 200);
-    assert.deepEqual((await good.json()).user, { id: "u1", email: "a@x.com" });
+    assert.deepEqual((await good.json()).user, { id: "u1", email: "a@x.com", emailConfirmed: true });
 
     const down = await fetch(`${base}/protected`, { headers: { Authorization: "Bearer down" } });
     assert.equal(down.status, 503);
