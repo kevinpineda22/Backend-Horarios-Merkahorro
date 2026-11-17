@@ -45,6 +45,20 @@ export function createPublishSnapshotsRepo(client) {
       return (data ?? []).map(toDto);
     },
 
+    /** The most recent publication of one sede/week, or null. */
+    async findLatestByWeek({ sedeId, weekStart }) {
+      const { data, error } = await client
+        .from(TABLE)
+        .select(COLUMNS)
+        .eq("sede_id", sedeId)
+        .eq("week_start", weekStart)
+        .order("published_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data ? toDto(data) : null;
+    },
+
     async findById(id) {
       const { data, error } = await client.from(TABLE).select(COLUMNS).eq("id", id).maybeSingle();
       if (error) throw error;

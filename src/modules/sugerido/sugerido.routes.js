@@ -4,7 +4,7 @@ import { validate } from "../../shared/http/validate.js";
 import { loadAccess, requireRole, requireSede } from "../../shared/http/authorize.js";
 import { createServiceKeyAuth } from "../../shared/http/serviceKey.js";
 import { createSugeridoServiceRouter } from "./sugerido.service.routes.js";
-import { createOverridesBodySchema, registersBodySchema, sedeParamsSchema, settingsPatchSchema, weekParamsSchema } from "./sugerido.schemas.js";
+import { createOverridesBodySchema, registersBodySchema, sedeParamsSchema, settingsPatchSchema, weekParamsSchema, accuracyParamsSchema, accuracyQuerySchema } from "./sugerido.schemas.js";
 
 /**
  * /api/sugerido. Dependencies are injected so tests run with fakes:
@@ -54,6 +54,15 @@ export function createSugeridoRouter({
     adminOnly,
     validate({ params: sedeParamsSchema, body: registersBodySchema }),
     asyncHandler(async (req, res) => res.json({ data: await service.setRegistersOverride(req.params.sedeId, req.body.override) })),
+  );
+
+  // Accuracy of a closed week (suggested vs real demand): admin-only like the publish snapshots follow-up.
+  router.get(
+    "/sedes/:sedeId/accuracy",
+    adminOnly,
+    validate({ params: accuracyParamsSchema, query: accuracyQuerySchema }),
+    requireSede(sedeOf),
+    asyncHandler(async (req, res) => res.json({ data: await service.getAccuracy(req.params.sedeId, req.query.weekStart) })),
   );
 
   router.get(

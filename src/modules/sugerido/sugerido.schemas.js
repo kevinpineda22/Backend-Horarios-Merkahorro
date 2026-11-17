@@ -26,6 +26,9 @@ const weekStart = dateOnly.refine((v) => !isRealDate(v) || isoDow(v) === 1, {
 
 export const sedeParamsSchema = z.object({ sedeId });
 export const weekParamsSchema = z.object({ sedeId, weekStart });
+export const accuracyParamsSchema = z.object({ sedeId });
+// GET /sedes/:sedeId/accuracy?weekStart=YYYY-MM-DD (a Monday)
+export const accuracyQuerySchema = z.object({ weekStart });
 
 // 15-minute boundary, 'HH:MM' only (the database column is time).
 const franja = z.string().regex(/^([01]\d|2[0-3]):(00|15|30|45)$/, "Franja inválida (use HH:MM en intervalos de 15 minutos)");

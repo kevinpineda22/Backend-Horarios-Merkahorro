@@ -61,6 +61,10 @@ export function fakeSuggestions(sedes = [
       const found = runs.find((r) => r.id === id);
       return found ? structuredClone(found) : null;
     },
+    async getRunByVersion(sedeId, weekStart, version) {
+      const found = runs.find((r) => r.sedeId === sedeId && r.weekStart === weekStart && r.version === version);
+      return found ? structuredClone(found) : null;
+    },
     async getLatestRun(sedeId, weekStart) {
       const found = runs.filter((r) => r.sedeId === sedeId && r.weekStart === weekStart).at(-1);
       return found ? structuredClone(found) : null;
@@ -85,7 +89,7 @@ export function fakeSuggestions(sedes = [
 }
 
 /** Full dependency set with spies. `state` fields can be mutated between calls. */
-export function makeDeps({ history = buildHistory(), pool = POOL, absences = { absences: [], warnings: [] }, settings = SETTINGS, sedes, absencesPort, registers = {} } = {}) {
+export function makeDeps({ history = buildHistory(), pool = POOL, absences = { absences: [], warnings: [] }, settings = SETTINGS, sedes, absencesPort, registers = {}, snapshotsRepo = null } = {}) {
   const state = { history, pool, absences, settings, registers: { ...registers }, now: new Date("2026-11-21T15:00:00Z") };
   const calls = { sales: [], registers: [], staff: [], absences: [], settings: 0, updateSettings: [] };
   const settle = (v) => (v instanceof Error ? Promise.reject(v) : Promise.resolve(v));
@@ -108,6 +112,7 @@ export function makeDeps({ history = buildHistory(), pool = POOL, absences = { a
     },
     staffPort: { async getCashierPool(sedeId) { calls.staff.push(sedeId); return settle(state.pool.map ? state.pool.map((cedula) => ({ cedula })) : state.pool); } },
     absencesPort: absencesPort ?? { async getAbsences(args) { calls.absences.push(args); return settle(state.absences); } },
+    ...(snapshotsRepo ? { snapshotsRepo } : {}),
     now: () => state.now,
   };
   return { deps, state, calls, repo: suggestionsRepo };

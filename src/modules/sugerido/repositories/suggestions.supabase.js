@@ -130,6 +130,13 @@ export function createSuggestionsRepo(client) {
       );
     },
 
+    /** The run of a sede/week with this exact version (runs are insert-only, so old versions stay readable), or null. */
+    async getRunByVersion(sedeId, weekStart, version) {
+      return withSlots(
+        unwrap(await client.from("sugerido_runs").select("*").eq("sede_id", sedeId).eq("week_start", weekStart).eq("version", version).maybeSingle()),
+      );
+    },
+
     /** One specific run (e.g. the one saveRun just returned) with its slots, or null when it does not exist. */
     async getRunById(runId) {
       return withSlots(unwrap(await client.from("sugerido_runs").select("*").eq("id", runId).maybeSingle()));

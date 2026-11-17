@@ -7,6 +7,7 @@ import { computeProductivity, PRODUCTIVITY_WINDOW_DAYS } from "./domain/producti
 import { assembleWeek, applyOverrides } from "./domain/merge.js";
 import { computeFreshness } from "./domain/freshness.js";
 import { isWeekInRange } from "./domain/weekRange.js";
+import { createAccuracyService } from "./accuracy.service.js";
 import { capSlots, countOverRegisters, derivedRegisters, effectiveRegisters, reconcileSlots, registersWarning } from "./domain/registers.js";
 
 const METHOD = "forecast-blend-v1";
@@ -58,7 +59,7 @@ const toRegisters = (derived, override) => ({ derived, override: override ?? nul
  * testable offline. Authorization (role / sede scope) is enforced by the routes; the service only
  * resolves the sede and applies business rules.
  */
-export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo, staffPort, absencesPort, now = () => new Date() }) {
+export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo, staffPort, absencesPort, snapshotsRepo = null, now = () => new Date() }) {
   // bodega -> { count, at }. Only the read paths use it; a run always asks the database.
   const registersCache = new Map();
   const registersFailedAt = new Map(); // bodega -> ms of the last failed load (negative cache)
@@ -165,7 +166,13 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
     return composeWeek(sede.sedeId, weekStart, run, await loadOverrides(sede.sedeId, weekStart), registers);
   }
 
+  // Read-only accuracy of a published week (needs the publish snapshots repo; without it the use case throws).
+  const accuracy = createAccuracyService({ suggestionsRepo, settingsRepo, salesRepo, snapshotsRepo, now });
+
   return {
+    /** Accuracy of a closed, published week (admin-only at the route). See accuracy.service.js for the contract. */
+    getAccuracy: (sedeId, weekStart) => accuracy.getAccuracy(sedeId, weekStart),
+
     /** Active sedes the caller may see: admins and all-sedes callers get all, scoped callers their own. */
     async listSedes(access) {
       const sedes = (await suggestionsRepo.listSedes()).filter((s) => canAccessSede(access, s.sedeId));
