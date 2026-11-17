@@ -8,6 +8,7 @@ const PLANNER = { id: U("2"), email: "lider@merkahorrosas.com" };
 const ANNY = { id: U("5"), email: "analista@merkahorrosas.com" };
 const RAMIRO = { id: U("6"), email: "OPERACIONES@merkahorrosas.com" };
 const OTHER = { id: U("7"), email: "otro@merkahorrosas.com" };
+const KEVIN = { id: U("8"), email: "desarrollo@merkahorrosas.com" };
 const APPROVERS = ["analista@merkahorrosas.com", "operaciones@merkahorrosas.com"];
 const WEEK = "2026-11-23";
 const planner = { role: "planner", sedeIds: ["copacabana"] };
@@ -47,7 +48,9 @@ function setup({ rows = [], mailFails = false } = {}) {
       return { sent: true };
     },
   };
-  const service = createOvertimeService({ repo, profilesRepo, mailer, approvers: APPROVERS, appUrl: "https://merkahorro.com", logger: null });
+  // Scheduler admins (sugerido_access role admin) may look at Autorizaciones; only the approvers decide.
+  const accessRepo = { async findByUserId(id) { return id === KEVIN.id ? { role: "admin", sede_ids: null } : id === PLANNER.id ? { role: "planner", sede_ids: ["copacabana"] } : null; } };
+  const service = createOvertimeService({ repo, profilesRepo, mailer, accessRepo, approvers: APPROVERS, appUrl: "https://merkahorro.com", logger: null });
   return { service, state };
 }
 
@@ -60,8 +63,8 @@ test("parseApprovers: comma list, trimmed, lowercase, deduplicated; default when
 
 test("me: whether the caller approves (by e-mail, any case)", async () => {
   const { service } = setup();
-  assert.deepEqual(await service.me(RAMIRO), { isApprover: true });
-  assert.deepEqual(await service.me(OTHER), { isApprover: false });
+  assert.deepEqual(await service.me(RAMIRO), { isApprover: true, canView: true });
+  assert.deepEqual(await service.me(OTHER), { isApprover: false, canView: false });
 });
 
 // ---------------------------------------------------------------- request
@@ -148,8 +151,8 @@ test("decide: an approver never decides their own request (the other approver do
 
 test("an approver's address that is not confirmed does not approve", async () => {
   const { service } = setup();
-  assert.deepEqual(await service.me({ ...ANNY, emailConfirmed: false }), { isApprover: false });
-  assert.deepEqual(await service.me({ ...ANNY, emailConfirmed: true }), { isApprover: true });
+  assert.deepEqual(await service.me({ ...ANNY, emailConfirmed: false }), { isApprover: false, canView: false });
+  assert.deepEqual(await service.me({ ...ANNY, emailConfirmed: true }), { isApprover: true, canView: true });
 });
 
 // ---------------------------------------------------------------- branded e-mails
@@ -177,4 +180,15 @@ test("decision e-mail: approved is a violet pill, rejected grey; never green; th
   assert.match(no.html, /Rechazada/);
   assert.match(no.html, /Sin presupuesto/);
   for (const html of [ok.html, no.html]) assert.doesNotMatch(html, /#16a34a|#22c55e|#166534|green/i);
+});
+
+test("scheduler admins see Autorizaciones (read only); planners do not; only approvers decide", async () => {
+  const { service } = setup();
+  await service.request(planner, PLANNER, "copacabana", WEEK, { hours: 5, motivo: "x" });
+  assert.deepEqual(await service.me(KEVIN), { isApprover: false, canView: true });
+  assert.deepEqual(await service.me(PLANNER), { isApprover: false, canView: false });
+  assert.equal((await service.listForApprovers(KEVIN, { status: "PENDIENTE" })).length, 1);
+  await assert.rejects(service.listForApprovers(PLANNER, { status: "PENDIENTE" }), code(403, "NOT_AN_APPROVER"));
+  const [item] = await service.listForApprovers(ANNY, { status: "PENDIENTE" });
+  await assert.rejects(service.decide(KEVIN, item.id, { decision: "APROBADA" }), code(403, "NOT_AN_APPROVER"));
 });

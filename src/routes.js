@@ -110,6 +110,7 @@ export default createRoutes({
       accessRepo,
       service: createOvertimeService({
         repo: createOvertimeRepo(lazyClient),
+        accessRepo,
         profilesRepo: createProfilesRepo(lazyClient),
         mailer: createMailer(),
         approvers: parseApprovers(process.env.OVERTIME_APPROVERS),

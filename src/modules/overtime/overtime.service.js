@@ -28,7 +28,7 @@ const weekText = (weekStart) => {
  *   profilesRepo findById -> { nombre, correo }
  *   mailer       send({ to, subject, html, text }); a failure never undoes a request or a decision
  */
-export function createOvertimeService({ repo, profilesRepo, mailer, approvers = DEFAULT_APPROVERS, appUrl = "https://merkahorro.com", logger = console }) {
+export function createOvertimeService({ repo, profilesRepo, mailer, accessRepo = null, approvers = DEFAULT_APPROVERS, appUrl = "https://merkahorro.com", logger = console }) {
   const approverSet = new Set(approvers.map((e) => e.toLowerCase()));
   // Only a confirmed e-mail counts: someone who signs up with an approver's address without confirming it is not one.
   const isApprover = (user) => Boolean(user?.email) && user.emailConfirmed !== false && approverSet.has(String(user.email).toLowerCase());
@@ -74,9 +74,22 @@ export function createOvertimeService({ repo, profilesRepo, mailer, approvers = 
     if (!isApprover(user)) throw createHttpError(403, "Solo los aprobadores de horas extra pueden hacer esto.", "NOT_AN_APPROVER");
   };
 
+  // Who may LOOK at Autorizaciones: the approvers and the scheduler admins (sugerido_access role admin, which super
+  // admins get). Deciding stays with the approvers only.
+  async function canView(user) {
+    if (isApprover(user)) return true;
+    if (!accessRepo || !user?.id) return false;
+    try {
+      const row = await accessRepo.findByUserId(user.id);
+      return row?.role === "admin" && !row.revoked_at;
+    } catch {
+      return false;
+    }
+  }
+
   return {
     async me(user) {
-      return { isApprover: isApprover(user) };
+      return { isApprover: isApprover(user), canView: await canView(user) };
     },
 
     /** A leader (admin / planner of the sede) asks for extra overtime hours for one sede-week. */
@@ -112,7 +125,7 @@ export function createOvertimeService({ repo, profilesRepo, mailer, approvers = 
     },
 
     async listForApprovers(user, { status } = {}) {
-      assertApprover(user);
+      if (!(await canView(user))) throw createHttpError(403, "Solo los aprobadores de horas extra pueden hacer esto.", "NOT_AN_APPROVER");
       const rows = await repo.listByStatus({ status });
       const profileOf = profileResolver();
       const sedes = new Map();
