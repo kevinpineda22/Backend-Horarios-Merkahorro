@@ -62,14 +62,14 @@ test("forecastDay blends A (mean of last 4 same-type days) and B (364d back x tr
     "2026-10-21": { "08:00": 20 },
     "2026-10-14": { "08:00": 30 },
     "2026-10-07": { "08:00": 40 },
-    "2025-11-05": { "08:00": 50 }, // target - 364
+    "2025-11-05": { "08:00": 35 }, // target - 364 (1.4x A, inside the outlier guard)
   };
   const { slots, daily } = build(history);
   const day = forecastDay({ fecha: "2026-11-04", dataAsOf: "2026-11-02", slots, daily, trendRatio: 1 });
   const slot = day.slots.find((s) => s.franja === "08:00");
-  // A = 25, B = 50 * 1 -> 37.5
-  assert.equal(slot.docs, 37.5);
-  assert.equal(slot.venta, 37500);
+  // A = 25, B = 35 * 1 -> 30
+  assert.equal(slot.docs, 30);
+  assert.equal(slot.venta, 30000);
   assert.equal(day.method, "blend");
   assert.equal(day.noHistory, false);
   assert.equal(day.lowHistory, false);
@@ -213,4 +213,71 @@ test("forecastWeek returns 7 days plus aggregated inputs", () => {
   assert.equal(week.days[0].fecha, "2026-11-02");
   assert.equal(week.inputs.trendRatio, 1);
   assert.deepEqual(Object.keys(week.inputs.referenceDates).length, 7);
+});
+
+// Outlier guard for component B (year-ago). Target Wed 2026-11-11 -> year-ago 2025-11-12 (364 days back).
+function guardFixture(aDay, bDay) {
+  const hist = {};
+  for (const d of ["2026-11-04", "2026-10-28", "2026-10-21", "2026-10-14"]) hist[d] = { "08:00": aDay / 2, "08:15": aDay / 2 };
+  if (bDay !== null) hist["2025-11-12"] = { "08:00": bDay / 2, "08:15": bDay / 2 };
+  return build(hist);
+}
+const guarded = (aDay, bDay, trendRatio = 1) => {
+  const { slots, daily } = guardFixture(aDay, bDay);
+  return forecastDay({ fecha: "2026-11-11", dataAsOf: "2026-11-09", slots, daily, trendRatio });
+};
+
+test("outlier guard: B far above A is discarded, A used alone", () => {
+  const day = guarded(1000, 3000);
+  assert.equal(day.totals.docs, 1000);
+  assert.equal(day.inputs.yearAgoDiscarded, true);
+  assert.equal(day.inputs.yearAgoUsed, false);
+  assert.equal(day.method, "sameDayType");
+});
+
+test("outlier guard: B far below A is discarded, A used alone", () => {
+  const day = guarded(1000, 500);
+  assert.equal(day.totals.docs, 1000);
+  assert.equal(day.inputs.yearAgoDiscarded, true);
+});
+
+test("outlier guard: B within 1.5x of A is blended as before", () => {
+  const day = guarded(1000, 1400);
+  assert.equal(day.totals.docs, 1200);
+  assert.equal(day.inputs.yearAgoDiscarded, false);
+  assert.equal(day.method, "blend");
+});
+
+test("outlier guard: B exactly at the 1.5x boundary is kept", () => {
+  assert.equal(guarded(1000, 1500).inputs.yearAgoDiscarded, false);
+});
+
+test("outlier guard: A missing keeps the year-ago-only behaviour", () => {
+  const { slots, daily } = build({ "2025-11-12": { "08:00": 100 } });
+  const day = forecastDay({ fecha: "2026-11-11", dataAsOf: "2026-11-09", slots, daily, trendRatio: 1 });
+  assert.equal(day.method, "yearAgo");
+  assert.equal(day.totals.docs, 100);
+  assert.equal(day.inputs.yearAgoDiscarded, false);
+});
+
+test("outlier guard: B missing keeps the same-day-type behaviour", () => {
+  const day = guarded(1000, null);
+  assert.equal(day.totals.docs, 1000);
+  assert.equal(day.inputs.yearAgoDiscarded, false);
+  assert.equal(day.method, "sameDayType");
+});
+
+test("outlier guard: reproduces copacabana Wed 2026-11-11 (A 1332, B 2123 -> 1332)", () => {
+  const day = guarded(1332, 2123);
+  assert.equal(day.totals.docs, 1332);
+  assert.equal(day.inputs.yearAgoDiscarded, true);
+});
+
+test("outlier guard: decision is per day, so every slot stays consistent", () => {
+  const hist = {};
+  for (const d of ["2026-11-04", "2026-10-28", "2026-10-21", "2026-10-14"]) hist[d] = { "08:00": 90, "08:15": 10 };
+  hist["2025-11-12"] = { "08:00": 10, "08:15": 290 }; // slot 08:15 alone is 29x A, day total 3x A
+  const { slots, daily } = build(hist);
+  const day = forecastDay({ fecha: "2026-11-11", dataAsOf: "2026-11-09", slots, daily, trendRatio: 1 });
+  assert.deepEqual(day.slots.map((x) => x.docs), [90, 10]);
 });
