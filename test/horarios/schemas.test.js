@@ -125,7 +125,7 @@ test("teamQuerySchema: absent means CAJEROS; values are trimmed and uppercased",
 });
 
 test("teamQuerySchema: rejects anything that is not CAJEROS, SIN_CARGO or CARGO:<cargo> within 120 characters", () => {
-  for (const team of ["", "  ", "CARGO:", "CARGO: ", "CARNICERO", "CAJERO", "CARGO", "CARGO:" + "A".repeat(115), "CARGO:A\nB"]) {
+  for (const team of ["", "  ", "CARGO:", "CARGO: ", "CARNICERO", "CAJERO", "CARGO", "CARGO:" + "A".repeat(115), "CARGO:A\u0001B"]) {
     bad(teamQuerySchema, { team });
   }
   ok(teamQuerySchema, { team: "CARGO:" + "A".repeat(114) }); // exactly 120
@@ -138,6 +138,13 @@ test("teams domain helpers", () => {
   assert.equal(teamKeyForCargo(" carnicero "), "CARGO:CARNICERO");
   assert.equal(teamKeyForCargo(""), "SIN_CARGO");
   assert.equal(teamKeyForCargo(null), "SIN_CARGO");
+});
+
+test("team key normalization collapses inner whitespace like the frontend teamKeyFor", () => {
+  assert.equal(normalizeTeamKey("cargo:auxiliar   de	bodega"), "CARGO:AUXILIAR DE BODEGA");
+  assert.equal(teamKeyForCargo("  Auxiliar   de  Bodega "), "CARGO:AUXILIAR DE BODEGA");
+  assert.equal(teamKeyForCargo("Auxiliar de Bodega"), teamKeyForCargo("AUXILIAR  DE BODEGA"));
+  assert.equal(teamQuerySchema.parse({ team: "cargo:auxiliar  de   bodega" }).team, "CARGO:AUXILIAR DE BODEGA");
 });
 
 test("historyQuerySchema also carries the team (default CAJEROS)", () => {

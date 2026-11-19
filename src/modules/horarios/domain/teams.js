@@ -11,8 +11,8 @@ const TEAM_KEY_RE = /^(CAJEROS|SIN_CARGO|CARGO:\S.*)$/;
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS_RE = /[\u0000-\u001f\u007f]/;
 
-/** Trimmed + uppercased, the form stored in the database. */
-export const normalizeTeamKey = (value) => String(value ?? "").trim().toUpperCase();
+/** Inner whitespace collapsed, trimmed and uppercased: the form stored in the database (same as the frontend teamKeyFor). */
+export const normalizeTeamKey = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toUpperCase();
 
 export function isValidTeamKey(value) {
   return (
