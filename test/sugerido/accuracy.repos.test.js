@@ -23,6 +23,7 @@ test("findLatestByWeek takes the newest publication of the sede/week", async () 
   const snap = await createPublishSnapshotsRepo(client).findLatestByWeek({ sedeId: "s1", weekStart: "2026-11-02" });
   assert.equal(snap.id, "sn1");
   assert.ok(has(log, "eq", "sede_id", "s1") && has(log, "eq", "week_start", "2026-11-02"));
+  assert.ok(has(log, "eq", "team_key", "CAJEROS"), "cashier snapshots by default");
   assert.ok(has(log, "order", "published_at", { ascending: false }));
   const none = fakeSupabase({ tables: { schedule_publish_snapshots: { data: null, error: null } } });
   assert.equal(await createPublishSnapshotsRepo(none.client).findLatestByWeek({ sedeId: "s1", weekStart: "2026-11-02" }), null);

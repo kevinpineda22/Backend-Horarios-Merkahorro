@@ -35,6 +35,7 @@ const SNAP = (over = {}) => ({
   id: U("c"),
   sedeId: "copacabana",
   weekStart: "2031-01-06",
+  teamKey: "CAJEROS",
   scheduleVersion: 3,
   publishedBy: PLANNER,
   publishedAt: "2031-01-02T15:00:00.000Z",
@@ -59,11 +60,12 @@ const admin = { role: "admin", sedeIds: null };
 test("listSnapshots: newest first as the repo gives them, with who published and the change summary, without the heavy payload", async () => {
   const { service, calls } = setup();
   const out = await service.listSnapshots(admin, "copacabana", { limit: 10 });
-  assert.deepEqual(calls[0], ["listBySede", { sedeId: "copacabana", limit: 10 }]);
+  assert.deepEqual(calls[0], ["listBySede", { sedeId: "copacabana", limit: 10, teamKey: null }]);
   assert.deepEqual(out, [
     {
       id: U("c"),
       weekStart: "2031-01-06",
+      teamKey: "CAJEROS",
       scheduleVersion: 3,
       publishedAt: "2031-01-02T15:00:00.000Z",
       publishedBy: "Paula Planner",
@@ -85,7 +87,7 @@ test("getSnapshot: the full three parts; another sede's id or an unknown id is 4
   const { service } = setup();
   const out = await service.getSnapshot(admin, "copacabana", U("c"));
   assert.equal(out.publishedBy, "Paula Planner");
-  assert.deepEqual(Object.keys(out).sort(), ["diff", "id", "published", "publishedAt", "publishedBy", "recommendation", "scheduleVersion", "suggested", "weekStart"]);
+  assert.deepEqual(Object.keys(out).sort(), ["diff", "id", "published", "publishedAt", "publishedBy", "recommendation", "scheduleVersion", "suggested", "teamKey", "weekStart"]);
   await assert.rejects(service.getSnapshot(admin, "las-vegas", U("c")), code(404, "SNAPSHOT_NOT_FOUND"));
   await assert.rejects(service.getSnapshot(admin, "copacabana", U("d")), code(404, "SNAPSHOT_NOT_FOUND"));
 });
@@ -112,7 +114,7 @@ function fakeClient(results) {
   return { log, client: { from: (t) => (log.push(["from", t]), builder(queue.shift() ?? { data: null, error: null })) } };
 }
 const ROW = {
-  id: U("c"), sede_id: "copacabana", week_start: "2031-01-06", schedule_version: 3, published_by: PLANNER,
+  id: U("c"), sede_id: "copacabana", week_start: "2031-01-06", team_key: "CAJEROS", schedule_version: 3, published_by: PLANNER,
   published_at: "2031-01-02T15:00:00+00:00", recommendation: null, suggested: null, published: [],
 };
 
@@ -145,4 +147,43 @@ test("diffSnapshotRows: with the team of the suggestion, people of other cargos 
   const published = [work("1", "2031-01-06", "07:00", "15:00"), work("9", "2031-01-06", "06:00", "14:00")];
   assert.equal(diffSnapshotRows(suggested, published).added, 1);
   assert.deepEqual(diffSnapshotRows(suggested, published, ["1"]), { days: 1, same: 1, changed: 0, added: 0, removed: 0, people: 1, peopleChanged: 0 });
+});
+
+// ------------------------------------------------------------------ teams (migration 015)
+
+test("listSnapshots passes the optional team filter to the repo and reports each snapshot's team", async () => {
+  const { service, calls } = setup({ snapshots: [SNAP({ teamKey: "CARGO:CARNICERO" })] });
+  const [item] = await service.listSnapshots(admin, "copacabana", { limit: 10, team: "CARGO:CARNICERO" });
+  assert.deepEqual(calls[0], ["listBySede", { sedeId: "copacabana", limit: 10, teamKey: "CARGO:CARNICERO" }]);
+  assert.equal(item.teamKey, "CARGO:CARNICERO");
+});
+
+test("repo.listBySede filters by team only when one is given", async () => {
+  const has = (log, ...call) => log.some((c) => JSON.stringify(c) === JSON.stringify(call));
+  const all = fakeClient([{ data: [ROW], error: null }]);
+  await createPublishSnapshotsRepo(all.client).listBySede({ sedeId: "copacabana", limit: 5 });
+  assert.equal(all.log.some((c) => c[0] === "eq" && c[1] === "team_key"), false);
+  const one = fakeClient([{ data: [ROW], error: null }]);
+  const [item] = await createPublishSnapshotsRepo(one.client).listBySede({ sedeId: "copacabana", limit: 5, teamKey: "CAJEROS" });
+  assert.ok(has(one.log, "eq", "team_key", "CAJEROS"));
+  assert.equal(item.teamKey, "CAJEROS");
+});
+
+test("repo.findLatestByWeek looks at the cashier team unless told otherwise; create stores the team", async () => {
+  const has = (log, ...call) => log.some((c) => JSON.stringify(c) === JSON.stringify(call));
+  const a = fakeClient([{ data: ROW, error: null }]);
+  await createPublishSnapshotsRepo(a.client).findLatestByWeek({ sedeId: "copacabana", weekStart: "2031-01-06" });
+  assert.ok(has(a.log, "eq", "team_key", "CAJEROS"));
+  const b = fakeClient([{ data: null, error: null }]);
+  await createPublishSnapshotsRepo(b.client).findLatestByWeek({ sedeId: "copacabana", weekStart: "2031-01-06", teamKey: "CARGO:CARNICERO" });
+  assert.ok(has(b.log, "eq", "team_key", "CARGO:CARNICERO"));
+  const c = fakeClient([{ data: { id: U("c") }, error: null }]);
+  await createPublishSnapshotsRepo(c.client).create({ scheduleId: U("a"), sedeId: "copacabana", weekStart: "2031-01-06", teamKey: "CARGO:CARNICERO", scheduleVersion: 2, publishedBy: PLANNER, published: [] });
+  assert.ok(c.log.some((x) => x[0] === "insert" && x[1].team_key === "CARGO:CARNICERO"));
+});
+
+test("schemas: the snapshots list accepts an optional team (normalized) and rejects a malformed one", () => {
+  assert.equal(snapshotsListQuerySchema.parse({}).team, undefined);
+  assert.equal(snapshotsListQuerySchema.parse({ team: " cargo:carnicero" }).team, "CARGO:CARNICERO");
+  assert.equal(snapshotsListQuerySchema.safeParse({ team: "FRUVER" }).success, false);
 });

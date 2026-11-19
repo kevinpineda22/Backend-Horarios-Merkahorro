@@ -47,7 +47,7 @@ test("OK: needed from real docs, system from the run, published from the snapsho
   assert.equal(r.productivitySource, "run");
   assert.deepEqual(r.snapshot, { id: "sn1", publishedAt: "2026-11-01T10:00:00.000Z", runVersion: 4 });
   assert.deepEqual(calls.run, ["s1", WEEK, 4]);
-  assert.deepEqual(calls.snap, { sedeId: "s1", weekStart: WEEK });
+  assert.deepEqual(calls.snap, { sedeId: "s1", weekStart: WEEK, teamKey: "CAJEROS" }); // accuracy reads the cashier team only
   assert.equal(calls.sales[0].desde, WEEK);
   assert.equal(calls.sales[0].hasta, "2026-11-08");
   assert.equal(r.summary.docs.actual, 20 * 4 * 7);

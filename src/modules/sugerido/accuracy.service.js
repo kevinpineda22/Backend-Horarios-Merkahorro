@@ -60,7 +60,8 @@ export function createAccuracyService({ suggestionsRepo, settingsRepo, salesRepo
 
       if (bogotaToday(now()) <= weekEnd) return base(weekStart, { status: "NOT_CLOSED" });
 
-      const snap = await snapshotsRepo.findLatestByWeek({ sedeId, weekStart });
+      // Accuracy compares the cashier recommendation only (other teams publish without one).
+      const snap = await snapshotsRepo.findLatestByWeek({ sedeId, weekStart, teamKey: "CAJEROS" });
       const rec = snap?.recommendation;
       if (!snap || !rec || !Array.isArray(rec.slots) || rec.slots.length === 0) return base(weekStart, { status: "NO_SNAPSHOT" });
       const snapshot = { id: snap.id, publishedAt: snap.publishedAt, runVersion: rec.runVersion ?? null };
