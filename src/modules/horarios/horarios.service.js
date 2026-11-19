@@ -317,7 +317,7 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
           publishedBy: await nameOf(s.publishedBy),
           hasRecommendation: s.recommendation !== null,
           hasSuggestion: s.suggested !== null,
-          diff: diffSnapshotRows(s.suggested?.shifts ?? null, s.published),
+          diff: diffSnapshotRows(s.suggested?.shifts ?? null, s.published, s.suggested?.cedulas ?? null),
         })),
       );
     },
@@ -336,7 +336,7 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
         recommendation: s.recommendation,
         suggested: s.suggested,
         published: s.published,
-        diff: diffSnapshotRows(s.suggested?.shifts ?? null, s.published),
+        diff: diffSnapshotRows(s.suggested?.shifts ?? null, s.published, s.suggested?.cedulas ?? null),
       };
     },
 

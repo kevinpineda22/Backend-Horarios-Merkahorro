@@ -139,3 +139,10 @@ test("schemas: snapshot id is a uuid; limit 1..52, default 26", () => {
   assert.equal(snapshotsListQuerySchema.parse({ limit: "5" }).limit, 5);
   assert.equal(snapshotsListQuerySchema.safeParse({ limit: "0" }).success, false);
 });
+
+test("diffSnapshotRows: with the team of the suggestion, people of other cargos are not changes", () => {
+  const suggested = [work("1", "2031-01-06", "07:00", "15:00")];
+  const published = [work("1", "2031-01-06", "07:00", "15:00"), work("9", "2031-01-06", "06:00", "14:00")];
+  assert.equal(diffSnapshotRows(suggested, published).added, 1);
+  assert.deepEqual(diffSnapshotRows(suggested, published, ["1"]), { days: 1, same: 1, changed: 0, added: 0, removed: 0, people: 1, peopleChanged: 0 });
+});

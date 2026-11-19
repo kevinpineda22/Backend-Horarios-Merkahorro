@@ -71,6 +71,7 @@ test("publish body needs expectedVersion >= 1", () => {
     },
   });
   ok(publishBodySchema, { expectedVersion: 1, snapshot: { recommendation: null, suggested: null } });
+  assert.deepEqual(publishBodySchema.parse({ expectedVersion: 1, snapshot: { recommendation: null, suggested: { cedulas: ["11111111"], shifts: [] } } }).snapshot.suggested.cedulas, ["11111111"]);
   // A malformed snapshot never blocks publishing: it is dropped.
   for (const snapshot of [
     { recommendation: { slots: [{ fecha: "x", franja: "08:00", final: 3 }] }, suggested: null },

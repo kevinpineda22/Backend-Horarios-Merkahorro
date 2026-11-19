@@ -106,7 +106,11 @@ const recommendationSnapshot = z.object({
     )
     .max(MAX_SNAPSHOT_SLOTS),
 });
-const suggestedSnapshot = z.object({ shifts: z.array(shiftIn).max(MAX_SHIFTS, `No puedes enviar más de ${MAX_SHIFTS} turnos`) });
+// `cedulas`: the cashier team the suggestion was built for (the comparison leaves other cargos scheduled by hand out).
+const suggestedSnapshot = z.object({
+  cedulas: z.array(cedula).max(MAX_CEDULAS).optional(),
+  shifts: z.array(shiftIn).max(MAX_SHIFTS, `No puedes enviar más de ${MAX_SHIFTS} turnos`),
+});
 
 export const publishBodySchema = z.object({
   expectedVersion: z

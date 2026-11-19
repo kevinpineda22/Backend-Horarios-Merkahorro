@@ -9,10 +9,13 @@ const signature = (row) => (row.tipo === "TRABAJO" ? `TRABAJO ${row.startTime}-$
  * @returns { days, same, changed, added (only in published), removed (only in suggested), people, peopleChanged },
  *   or null without a suggestion to compare with
  */
-export function diffSnapshotRows(suggested, published) {
+export function diffSnapshotRows(suggested, published, teamCedulas = null) {
   if (!Array.isArray(suggested)) return null;
+  // Only the team of the suggestion: people of other cargos scheduled by hand the same week are not "changes".
+  const team = Array.isArray(teamCedulas) ? new Set(teamCedulas.map(String)) : null;
+  const inTeam = (row) => !team || team.has(String(row.cedula));
   const before = new Map(suggested.map((row) => [key(row), signature(row)]));
-  const after = new Map((published ?? []).map((row) => [key(row), signature(row)]));
+  const after = new Map((published ?? []).filter(inTeam).map((row) => [key(row), signature(row)]));
   const keys = new Set([...before.keys(), ...after.keys()]);
   const result = { days: keys.size, same: 0, changed: 0, added: 0, removed: 0, people: 0, peopleChanged: 0 };
   const people = new Set();
