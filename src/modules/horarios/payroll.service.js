@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { teamLabel } from "./domain/teams.js";
 import { licenciaSummary } from "./domain/payrollLicencias.js";
 import { createHttpError } from "../../shared/http/HttpError.js";
 import { canAccessSede } from "../../shared/http/authorize.js";
@@ -313,22 +314,25 @@ export function createPayrollService({
   // so a zero-hour row can also mean "not scheduled here".
   push("PARTIAL_COVERAGE");
 
-  // Sede-weeks in BORRADOR that have work in the period. Their shifts are EXCLUDED from the report.
-  // Accepted (S1): a spill shift of a BORRADOR previous week is not counted either, and that week is not
-  // listed here because it lies outside the period's weeks.
-  const scheduleState = new Map(schedules.map((s) => [`${s.sede_id}|${s.week_start}`, s.state]));
-  const draftKeys = new Set(
-    draftShifts.filter((s) => inScope(s.sede_id)).map((s) => `${s.sede_id}|${mondayOf(s.fecha)}`),
+  // Sede-week-TEAMS in BORRADOR that have work in the period (migration 015: one schedule per team). Their shifts
+  // are EXCLUDED from the report. Accepted (S1): a spill shift of a BORRADOR previous week is not counted either,
+  // and that week is not listed here because it lies outside the period's weeks.
+  const draftKeys = new Map();
+  for (const s of draftShifts.filter((d) => inScope(d.sede_id))) {
+    const item = { sedeId: s.sede_id, weekStart: mondayOf(s.fecha), teamKey: s.team_key ?? "CAJEROS" };
+    draftKeys.set(`${item.sedeId}|${item.weekStart}|${item.teamKey}`, item);
+  }
+  const unpublished = [...draftKeys.values()].sort(
+    (a, b) => byText(a.sedeId, b.sedeId) || byText(a.weekStart, b.weekStart) || byText(a.teamKey, b.teamKey),
   );
-  const unpublished = [...draftKeys]
-    .map((k) => ({ sedeId: k.split("|")[0], weekStart: k.split("|")[1] }))
-    .sort((a, b) => byText(a.sedeId, b.sedeId) || byText(a.weekStart, b.weekStart));
   if (unpublished.length) push("UNPUBLISHED_WEEKS", { items: unpublished });
 
+  // A sede-week has a schedule when ANY team has one (whatever its state).
+  const scheduledSedeWeeks = new Set(schedules.map((s) => `${s.sede_id}|${s.week_start}`));
   const unscheduled = [];
   for (const s of sedes.filter((x) => x.activo !== false && inScope(x.sede_id))) {
     for (const w of weeks) {
-      if (!scheduleState.has(`${s.sede_id}|${w.weekStart}`)) unscheduled.push({ sedeId: s.sede_id, weekStart: w.weekStart });
+      if (!scheduledSedeWeeks.has(`${s.sede_id}|${w.weekStart}`)) unscheduled.push({ sedeId: s.sede_id, weekStart: w.weekStart });
     }
   }
   unscheduled.sort((a, b) => byText(a.sedeId, b.sedeId) || byText(a.weekStart, b.weekStart));
@@ -401,7 +405,7 @@ export function createPayrollService({
         throw err;
       }
       if (unpublished.length) {
-        const list = unpublished.map((u) => `${u.sedeId} (semana del ${u.weekStart})`).join(", ");
+        const list = unpublished.map((u) => `${u.sedeId} (semana del ${u.weekStart}, ${teamLabel(u.teamKey)})`).join(", ");
         const err = createHttpError(
           409,
           `No se puede guardar el corte: hay semanas en borrador en el periodo (${list}). Publícalas antes de guardar.`,

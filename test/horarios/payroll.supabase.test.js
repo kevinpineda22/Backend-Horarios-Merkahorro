@@ -61,7 +61,7 @@ test("listDraftWorkShifts reads TRABAJO shifts of BORRADOR schedules in the peri
   assert.ok(has(log, "eq", "tipo", "TRABAJO"));
   assert.ok(has(log, "gte", "fecha", "2026-10-26"));
   assert.ok(has(log, "lte", "fecha", "2026-11-08"));
-  assert.match(log.find((c) => c[0] === "select")[1], /sede_id, fecha, sede_week_schedules!inner\(state\)/);
+  assert.match(log.find((c) => c[0] === "select")[1], /sede_id, fecha, sede_week_schedules!inner\(state, team_key\)/);
 });
 
 test("listShiftsInRange asks for one more page when the last page is exactly full", async () => {
@@ -77,7 +77,7 @@ test("listSchedulesInRange reads schedule states for the weeks of the period", a
   assert.ok(has(log, "from", "sede_week_schedules"));
   assert.ok(has(log, "gte", "week_start", "2026-10-26"));
   assert.ok(has(log, "lte", "week_start", "2026-11-02"));
-  assert.match(log.find((c) => c[0] === "select")[1], /sede_id, week_start, state/);
+  assert.match(log.find((c) => c[0] === "select")[1], /sede_id, week_start, team_key, state/);
 });
 
 test("listSedes reads the catalog with the SIESA branch code", async () => {
@@ -92,4 +92,17 @@ test("read errors are rethrown, never turned into empty data", async () => {
   const boom = { message: "db down" };
   const { client } = pagedFake(1, { error: boom });
   await assert.rejects(createPayrollRepo(client).listSedes(), (e) => e === boom);
+});
+
+test("listDraftWorkShifts flattens the team of the schedule into each row and strips the embed", async () => {
+  const rows = [
+    { sede_id: "copacabana", fecha: "2026-10-27", sede_week_schedules: { state: "BORRADOR", team_key: "CARGO:CARNICERO" } },
+    { sede_id: "copacabana", fecha: "2026-10-28", sede_week_schedules: { state: "BORRADOR" } },
+  ];
+  const builder = new Proxy({}, { get: (_t, prop) => (prop === "then" ? (res) => Promise.resolve({ data: rows, error: null }).then(res) : () => builder) });
+  const out = await createPayrollRepo({ from: () => builder }).listDraftWorkShifts({ from: "2026-10-26", to: "2026-11-08" });
+  assert.deepEqual(out, [
+    { sede_id: "copacabana", fecha: "2026-10-27", team_key: "CARGO:CARNICERO" },
+    { sede_id: "copacabana", fecha: "2026-10-28", team_key: "CAJEROS" },
+  ]);
 });

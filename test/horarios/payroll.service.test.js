@@ -254,15 +254,15 @@ test("warning UNPUBLISHED_WEEKS lists BORRADOR sede-weeks with work in accessibl
   const { service, calls } = build({ shifts, drafts, schedules, directory: [emp("10010001", "copacabana"), emp("10020002", "bello")] });
   const full = await report(service);
   assert.deepEqual(warn(full, "UNPUBLISHED_WEEKS").items, [
-    { sedeId: "bello", weekStart: FROM },
-    { sedeId: "copacabana", weekStart: "2026-11-02" },
+    { sedeId: "bello", weekStart: FROM, teamKey: "CAJEROS" },
+    { sedeId: "copacabana", weekStart: "2026-11-02", teamKey: "CAJEROS" },
   ]);
   assert.deepEqual(calls.drafts[0], { from: FROM, to: TO });
   assert.deepEqual(warn(await report(service, PLANNER), "UNPUBLISHED_WEEKS").items, [
-    { sedeId: "copacabana", weekStart: "2026-11-02" },
+    { sedeId: "copacabana", weekStart: "2026-11-02", teamKey: "CAJEROS" },
   ]);
   assert.deepEqual(warn(await report(service, ADMIN, { sedeId: "bello" }), "UNPUBLISHED_WEEKS").items, [
-    { sedeId: "bello", weekStart: FROM },
+    { sedeId: "bello", weekStart: FROM, teamKey: "CAJEROS" },
   ]);
   assert.equal(full.rows.find((r) => r.cedula === "10010001").totals.workedHours, 4, "only the published shift counts");
 });
@@ -462,4 +462,34 @@ test("licences: without the novedades port every row has zeros; a failing read d
   const failing = await report(build({ directory: [emp("111", "copacabana")], licenciasError: new Error("down") }).service);
   assert.ok(warn(failing, "LICENCIAS_UNAVAILABLE"));
   assert.deepEqual(failing.licenciaTotals, { licenciaRemuneradaHoras: 0, licenciaNoRemuneradaDias: 0 });
+});
+
+// ------------------------------------------------------------------ teams (migration 015)
+
+test("UNPUBLISHED_WEEKS is per sede-week-TEAM: a published cargo does not hide a draft one, and teams do not collide", async () => {
+  const schedules = [
+    { sede_id: "copacabana", week_start: FROM, team_key: "CAJEROS", state: "PUBLICADO" },
+    { sede_id: "copacabana", week_start: FROM, team_key: "CARGO:CARNICERO", state: "BORRADOR" },
+    { sede_id: "copacabana", week_start: FROM, team_key: "CARGO:AUXILIAR", state: "BORRADOR" },
+  ];
+  const drafts = [
+    { sede_id: "copacabana", fecha: "2026-10-27", team_key: "CARGO:CARNICERO" },
+    { sede_id: "copacabana", fecha: "2026-10-28", team_key: "CARGO:CARNICERO" }, // same team-week: ONE item
+    { sede_id: "copacabana", fecha: "2026-10-27", team_key: "CARGO:AUXILIAR" },
+  ];
+  const { service } = build({ schedules, drafts });
+  assert.deepEqual(warn(await report(service), "UNPUBLISHED_WEEKS").items, [
+    { sedeId: "copacabana", weekStart: FROM, teamKey: "CARGO:AUXILIAR" },
+    { sedeId: "copacabana", weekStart: FROM, teamKey: "CARGO:CARNICERO" },
+  ]);
+});
+
+test("SEDE_WEEK_WITHOUT_SCHEDULE: a sede-week with ANY team schedule (draft or published) counts as scheduled", async () => {
+  const schedules = [
+    { sede_id: "copacabana", week_start: FROM, team_key: "CARGO:CARNICERO", state: "BORRADOR" }, // only a non-cashier team
+    { sede_id: "copacabana", week_start: "2026-11-02", team_key: "CAJEROS", state: "PUBLICADO" },
+    { sede_id: "copacabana", week_start: "2026-11-02", team_key: "CARGO:CARNICERO", state: "PUBLICADO" },
+  ];
+  const { service } = build({ schedules, sedes: [CAT[0]] });
+  assert.equal(warn(await report(service), "SEDE_WEEK_WITHOUT_SCHEDULE"), undefined);
 });

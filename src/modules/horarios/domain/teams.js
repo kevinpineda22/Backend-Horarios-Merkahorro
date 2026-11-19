@@ -24,6 +24,13 @@ export function isValidTeamKey(value) {
   );
 }
 
+/** Human label of a team key for messages: 'CARGO:CARNICERO' -> 'CARNICERO'. */
+export const teamLabel = (teamKey) => {
+  if (teamKey === TEAM_CAJEROS) return "Cajeros";
+  if (teamKey === TEAM_SIN_CARGO) return "Sin cargo";
+  return String(teamKey ?? "").replace(/^CARGO:/, "");
+};
+
 /** The team key of a cargo as the directory spells it: null/blank -> SIN_CARGO. */
 export const teamKeyForCargo = (cargo) => {
   const normalized = normalizeTeamKey(cargo);

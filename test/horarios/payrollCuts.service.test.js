@@ -144,8 +144,21 @@ test("saveCut refuses with 409 UNPUBLISHED_WEEKS_IN_PERIOD when a BORRADOR week 
   await assert.rejects(service.saveCut(ADMIN, USER, { from: FROM, to: TO, fingerprint }), (e) => {
     assert.equal(e.statusCode, 409);
     assert.equal(e.code, "UNPUBLISHED_WEEKS_IN_PERIOD");
-    assert.match(e.message, /bello \(semana del 2026-11-02\)/);
-    assert.deepEqual(e.details.items, [{ sedeId: "bello", weekStart: "2026-11-02" }]);
+    assert.match(e.message, /bello \(semana del 2026-11-02, Cajeros\)/);
+    assert.deepEqual(e.details.items, [{ sedeId: "bello", weekStart: "2026-11-02", teamKey: "CAJEROS" }]);
+    return true;
+  });
+  assert.equal(calls.save.length, 0);
+});
+
+test("saveCut names the draft cargo: one published team does not let another draft team through", async () => {
+  const drafts = [{ sede_id: "bello", fecha: "2026-11-03", team_key: "CARGO:CARNICERO" }];
+  const { service, calls } = build({ ...WORKED, drafts });
+  const fingerprint = await fingerprintOf(service);
+  await assert.rejects(service.saveCut(ADMIN, USER, { from: FROM, to: TO, fingerprint }), (e) => {
+    assert.equal(e.code, "UNPUBLISHED_WEEKS_IN_PERIOD");
+    assert.match(e.message, /bello \(semana del 2026-11-02, CARNICERO\)/);
+    assert.deepEqual(e.details.items, [{ sedeId: "bello", weekStart: "2026-11-02", teamKey: "CARGO:CARNICERO" }]);
     return true;
   });
   assert.equal(calls.save.length, 0);

@@ -74,32 +74,34 @@ export function createPayrollRepo(client) {
     },
 
     /**
-     * TRABAJO shifts with fecha in [from, to] that belong to a BORRADOR schedule: only { sede_id, fecha }.
-     * Drafts are excluded from the report, so this tells which sede-weeks were left out.
+     * TRABAJO shifts with fecha in [from, to] that belong to a BORRADOR schedule: only { sede_id, fecha, team_key }.
+     * Drafts are excluded from the report, so this tells which sede-week-teams were left out.
      */
-    listDraftWorkShifts({ from, to }) {
-      return fetchAll(() =>
+    async listDraftWorkShifts({ from, to }) {
+      const rows = await fetchAll(() =>
         client
           .from("shifts")
-          .select("sede_id, fecha, sede_week_schedules!inner(state)")
+          .select("sede_id, fecha, sede_week_schedules!inner(state, team_key)")
           .eq("sede_week_schedules.state", "BORRADOR")
           .eq("tipo", "TRABAJO")
           .gte("fecha", from)
           .lte("fecha", to)
           .order("id", { ascending: true }),
       );
+      return rows.map(({ sede_week_schedules: schedule, ...shift }) => ({ ...shift, team_key: schedule?.team_key ?? "CAJEROS" }));
     },
 
-    /** Schedule state of every sede for the weeks whose Monday is in [fromWeek, toWeek]. */
+    /** Schedule state of every team of every sede for the weeks whose Monday is in [fromWeek, toWeek]. */
     listSchedulesInRange({ fromWeek, toWeek }) {
       return fetchAll(() =>
         client
           .from("sede_week_schedules")
-          .select("sede_id, week_start, state")
+          .select("sede_id, week_start, team_key, state")
           .gte("week_start", fromWeek)
           .lte("week_start", toWeek)
           .order("sede_id", { ascending: true })
-          .order("week_start", { ascending: true }),
+          .order("week_start", { ascending: true })
+          .order("team_key", { ascending: true }),
       );
     },
 

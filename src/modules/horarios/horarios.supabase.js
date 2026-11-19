@@ -1,5 +1,5 @@
 import { createHttpError } from "../../shared/http/HttpError.js";
-import { TEAM_CAJEROS } from "./domain/teams.js";
+import { TEAM_CAJEROS, teamLabel } from "./domain/teams.js";
 
 const SCHEDULE_COLUMNS =
   "id, sede_id, week_start, team_key, state, version, published_by, published_at, created_by, created_at, updated_by, updated_at";
@@ -42,13 +42,6 @@ function parseConflicts(details) {
     return [];
   }
 }
-
-// Human label of a team key for messages: 'CARGO:CARNICERO' -> 'CARNICERO'.
-const teamLabel = (teamKey) => {
-  if (teamKey === "CAJEROS") return "Cajeros";
-  if (teamKey === "SIN_CARGO") return "Sin cargo";
-  return String(teamKey ?? "").replace(/^CARGO:/, "");
-};
 
 function parseTeamConflicts(details) {
   try {
