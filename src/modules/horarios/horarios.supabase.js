@@ -1,7 +1,8 @@
 import { createHttpError } from "../../shared/http/HttpError.js";
+import { TEAM_CAJEROS } from "./domain/teams.js";
 
 const SCHEDULE_COLUMNS =
-  "id, sede_id, week_start, state, version, published_by, published_at, created_by, created_at, updated_by, updated_at";
+  "id, sede_id, week_start, team_key, state, version, published_by, published_at, created_by, created_at, updated_by, updated_at";
 const SHIFT_COLUMNS =
   "id, schedule_id, sede_id, siesa_code, cedula, fecha, tipo, start_time, end_time, break_minutes, lunch_start, cargo, observacion, updated_by, updated_at";
 // Public lookup: deliberately short (no observacion, cargo, audit or id columns).
@@ -9,6 +10,8 @@ const PUBLIC_SHIFT_COLUMNS = "schedule_id, fecha, tipo, start_time, end_time, br
 const HISTORY_COLUMNS = "id, shift_id, cedula, fecha, action, schedule_version, actor, at, before, after";
 
 const PAGE_SIZE = 1000;
+// Upper bound used to over-fetch rows when counting distinct weeks (a sede has a handful of cargos).
+const MAX_TEAMS_PER_WEEK = 20;
 
 // PostgREST caps a response at max-rows (1000), silently truncating. Page with .range() until a short page.
 // `build` must return a fresh, deterministically ordered query each call.
@@ -40,7 +43,23 @@ function parseConflicts(details) {
   }
 }
 
-// 004_shifts.sql exception messages -> HTTP errors. Anything else is rethrown untouched.
+// Human label of a team key for messages: 'CARGO:CARNICERO' -> 'CARNICERO'.
+const teamLabel = (teamKey) => {
+  if (teamKey === "CAJEROS") return "Cajeros";
+  if (teamKey === "SIN_CARGO") return "Sin cargo";
+  return String(teamKey ?? "").replace(/^CARGO:/, "");
+};
+
+function parseTeamConflicts(details) {
+  try {
+    const parsed = JSON.parse(details);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// 004_shifts.sql / 015_schedule_teams.sql exception messages -> HTTP errors. Anything else is rethrown untouched.
 function mapRpcError(error) {
   const message = String(error?.message ?? "");
   if (message.includes("VERSION_CONFLICT")) {
@@ -55,6 +74,16 @@ function mapRpcError(error) {
   if (message.includes("SHIFT_OVERLAP")) {
     const err = createHttpError(422, "Un turno se cruza con otro turno de la misma persona.", "SHIFT_OVERLAP");
     err.details = { conflicts: parseConflicts(error.details) };
+    return err;
+  }
+  if (message.includes("SHIFT_IN_OTHER_TEAM")) {
+    const conflicts = parseTeamConflicts(error.details);
+    const first = conflicts[0];
+    const who = first
+      ? `${first.cedula} ya tiene turno el ${first.fecha} en otro cargo de esta sede (${teamLabel(first.otherTeamKey)}). Quítalo allí primero.`
+      : "Una persona ya tiene turno ese día en otro cargo de esta sede. Quítalo allí primero.";
+    const err = createHttpError(409, who, "SHIFT_IN_OTHER_TEAM");
+    err.details = { conflicts };
     return err;
   }
   if (message.includes("NOT_PUBLISHED")) {
@@ -126,26 +155,53 @@ export function createHorariosRepo(client, { logger = console } = {}) {
       return data ?? null;
     },
 
-    async findSchedule(sedeId, weekStart) {
+    /** The schedule of one team (migration 015) for a sede-week, or null. */
+    async findSchedule(sedeId, weekStart, teamKey = TEAM_CAJEROS) {
       const { data, error } = await client
         .from("sede_week_schedules")
         .select(SCHEDULE_COLUMNS)
         .eq("sede_id", sedeId)
         .eq("week_start", weekStart)
+        .eq("team_key", teamKey)
         .maybeSingle();
       if (error) throw error;
       return data ?? null;
     },
 
-    /** Schedules of a sede in one state, newest week first. One query. */
-    async listSchedules({ sedeId, status, limit }) {
+    /** Every team schedule of one sede-week (any state), team order stable. Used for the `teams` summary. */
+    async listTeamSchedules(sedeId, weekStart) {
       const { data, error } = await client
         .from("sede_week_schedules")
         .select(SCHEDULE_COLUMNS)
         .eq("sede_id", sedeId)
+        .eq("week_start", weekStart)
+        .order("team_key", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+
+    /**
+     * The newest `limit` weeks of a sede that have at least one team schedule in `status`, with EVERY team schedule of
+     * those weeks (any state), newest week first. Two queries: the matching weeks, then all their rows.
+     */
+    async listSchedules({ sedeId, status, limit }) {
+      const matching = await client
+        .from("sede_week_schedules")
+        .select("week_start")
+        .eq("sede_id", sedeId)
         .eq("state", status)
         .order("week_start", { ascending: false })
-        .limit(limit);
+        .limit(limit * MAX_TEAMS_PER_WEEK);
+      if (matching.error) throw matching.error;
+      const weeks = [...new Set((matching.data ?? []).map((r) => r.week_start))].slice(0, limit);
+      if (!weeks.length) return [];
+      const { data, error } = await client
+        .from("sede_week_schedules")
+        .select(SCHEDULE_COLUMNS)
+        .eq("sede_id", sedeId)
+        .in("week_start", weeks)
+        .order("week_start", { ascending: false })
+        .order("team_key", { ascending: true });
       if (error) throw error;
       return data ?? [];
     },
@@ -230,12 +286,13 @@ export function createHorariosRepo(client, { logger = console } = {}) {
     },
 
     /** Resolves the week row; `segments` (optional [{ cedula, fecha, segments }]) goes in the same transaction (014). */
-    async saveWeek({ sedeId, weekStart, expectedVersion, cedulas, shifts, actor, segments = null }) {
+    async saveWeek({ sedeId, weekStart, teamKey = TEAM_CAJEROS, expectedVersion, cedulas, shifts, actor, segments = null }) {
       const { data, segmentsSaved } = await rpcWithSegments(client, {
         name: "shifts_save_week",
         args: {
           p_sede: sedeId,
           p_week: weekStart,
+          p_team: teamKey,
           p_expected_version: expectedVersion ?? 0,
           p_cedulas: cedulas,
           p_shifts: shifts.map(toRpcShift),
@@ -248,20 +305,21 @@ export function createHorariosRepo(client, { logger = console } = {}) {
     },
 
     /** Like saveWeek: with `segments` the migration-014 RPC freezes them atomically; `segmentsSaved` tells which ran. */
-    async publishWeek({ sedeId, weekStart, expectedVersion, actor, segments = null }) {
+    async publishWeek({ sedeId, weekStart, teamKey = TEAM_CAJEROS, expectedVersion, actor, segments = null }) {
       const { data, segmentsSaved } = await rpcWithSegments(client, {
         name: "shifts_publish_week",
-        args: { p_sede: sedeId, p_week: weekStart, p_expected_version: expectedVersion, p_actor: actor },
+        args: { p_sede: sedeId, p_week: weekStart, p_team: teamKey, p_expected_version: expectedVersion, p_actor: actor },
         segments,
         logger,
       });
       return { ...(data ?? {}), segmentsSaved };
     },
 
-    unpublishWeek: ({ sedeId, weekStart, expectedVersion, actor }) =>
+    unpublishWeek: ({ sedeId, weekStart, teamKey = TEAM_CAJEROS, expectedVersion, actor }) =>
       rpc(client, "shifts_unpublish_week", {
         p_sede: sedeId,
         p_week: weekStart,
+        p_team: teamKey,
         p_expected_version: expectedVersion,
         p_actor: actor,
       }),

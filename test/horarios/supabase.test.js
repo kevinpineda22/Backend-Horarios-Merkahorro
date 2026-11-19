@@ -41,7 +41,7 @@ test("saveWeek maps camelCase to the snake_case the RPC reads and uses the exact
   assert.deepEqual(
     log.find((c) => c[0] === "rpc"),
     ["rpc", "shifts_save_week", {
-      p_sede: "copacabana", p_week: "2031-01-06", p_expected_version: 2, p_cedulas: ["11111111"], p_actor: ACTOR,
+      p_sede: "copacabana", p_week: "2031-01-06", p_team: "CAJEROS", p_expected_version: 2, p_cedulas: ["11111111"], p_actor: ACTOR,
       p_shifts: [{
         cedula: "11111111", fecha: "2031-01-06", tipo: "TRABAJO", start_time: "08:00", end_time: "17:00",
         break_minutes: 60, lunch_start: "12:00", cargo: "Cajero", observacion: null,
@@ -60,7 +60,38 @@ test("a null expectedVersion is sent as 0", async () => {
 test("publishWeek calls its RPC with the exact parameter names", async () => {
   const { log, client } = fake({ data: { noop: false }, error: null });
   await createHorariosRepo(client).publishWeek({ sedeId: "copacabana", weekStart: "2031-01-06", expectedVersion: 4, actor: ACTOR });
-  assert.ok(has(log, "rpc", "shifts_publish_week", { p_sede: "copacabana", p_week: "2031-01-06", p_expected_version: 4, p_actor: ACTOR }));
+  assert.ok(has(log, "rpc", "shifts_publish_week", { p_sede: "copacabana", p_week: "2031-01-06", p_team: "CAJEROS", p_expected_version: 4, p_actor: ACTOR }));
+});
+
+test("saveWeek / publishWeek send the team they were given", async () => {
+  const saved = fake({ data: { id: SCHED, version: 1 }, error: null });
+  await save(saved.client, { teamKey: "CARGO:CARNICERO" });
+  assert.equal(saved.log.find((c) => c[0] === "rpc")[2].p_team, "CARGO:CARNICERO");
+  const published = fake({ data: { noop: false }, error: null });
+  await createHorariosRepo(published.client).publishWeek({ sedeId: "copacabana", weekStart: "2031-01-06", teamKey: "SIN_CARGO", expectedVersion: 4, actor: ACTOR });
+  assert.equal(published.log.find((c) => c[0] === "rpc")[2].p_team, "SIN_CARGO");
+});
+
+test("findSchedule filters by team (CAJEROS by default)", async () => {
+  const a = fake({ data: null, error: null });
+  await createHorariosRepo(a.client).findSchedule("copacabana", "2031-01-06");
+  assert.ok(has(a.log, "eq", "team_key", "CAJEROS"));
+  const b = fake({ data: null, error: null });
+  await createHorariosRepo(b.client).findSchedule("copacabana", "2031-01-06", "CARGO:CARNICERO");
+  assert.ok(has(b.log, "eq", "team_key", "CARGO:CARNICERO"));
+});
+
+test("SHIFT_IN_OTHER_TEAM maps to 409 with a Spanish message naming the person, the day and the other cargo", async () => {
+  const details = JSON.stringify([{ cedula: "11111111", fecha: "2031-01-07", otherTeamKey: "CARGO:CARNICERO" }]);
+  await rejects(save(fake({ data: null, error: { message: "SHIFT_IN_OTHER_TEAM", details, code: "P0001" } }).client), 409, "SHIFT_IN_OTHER_TEAM", (e) => {
+    assert.equal(e.message, "11111111 ya tiene turno el 2031-01-07 en otro cargo de esta sede (CARNICERO). Quítalo allí primero.");
+    assert.deepEqual(e.details, { conflicts: [{ cedula: "11111111", fecha: "2031-01-07", otherTeamKey: "CARGO:CARNICERO" }] });
+  });
+  const cashiers = JSON.stringify([{ cedula: "22222222", fecha: "2031-01-08", otherTeamKey: "CAJEROS" }]);
+  await rejects(save(fake({ data: null, error: { message: "SHIFT_IN_OTHER_TEAM", details: cashiers, code: "P0001" } }).client), 409, "SHIFT_IN_OTHER_TEAM", (e) =>
+    assert.match(e.message, /\(Cajeros\)/));
+  await rejects(save(fake({ data: null, error: { message: "SHIFT_IN_OTHER_TEAM", details: "not json", code: "P0001" } }).client), 409, "SHIFT_IN_OTHER_TEAM", (e) =>
+    assert.deepEqual(e.details, { conflicts: [] }));
 });
 
 test("RPC exceptions map to HTTP errors with details", async () => {

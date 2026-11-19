@@ -2,6 +2,7 @@ import { z } from "zod";
 import { isoDow, toEpochDay } from "../sugerido/domain/dates.js";
 import { TIPOS } from "./domain/weekPayload.js";
 import { SEGMENT_ROLES } from "./domain/segments.js";
+import { TEAM_CAJEROS, TEAM_KEY_MAX_LENGTH, isValidTeamKey, normalizeTeamKey } from "./domain/teams.js";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CEDULA_RE = /^[0-9]{5,15}$/;
@@ -37,6 +38,18 @@ export const SCHEDULES_DEFAULT_LIMIT = 26;
 export const SCHEDULES_MAX_LIMIT = 52;
 
 export const sedeParamsSchema = z.object({ sedeId });
+
+// Team of the schedule (migration 015): 'CAJEROS', 'SIN_CARGO' or 'CARGO:<CARGO>'. Trimmed and uppercased.
+const teamKey = z
+  .string({ invalid_type_error: "team inválido" })
+  .max(TEAM_KEY_MAX_LENGTH * 2, `team no puede superar ${TEAM_KEY_MAX_LENGTH} caracteres`)
+  .transform(normalizeTeamKey)
+  .refine(isValidTeamKey, "team inválido (CAJEROS, SIN_CARGO o CARGO:<CARGO>, máximo 120 caracteres)");
+
+// ?team=... on the week routes. Absent = CAJEROS, so builds of the frontend that predate the teams keep working for cashiers.
+export const teamQuerySchema = z.object({
+  team: teamKey.optional().transform((v) => v ?? TEAM_CAJEROS),
+});
 
 export const weekParamsSchema = z.object({
   sedeId: z.string({ required_error: "La sede es obligatoria" }).trim().min(1, "Sede inválida"),
@@ -137,6 +150,8 @@ export const snapshotParamsSchema = z.object({
 
 export const SNAPSHOTS_DEFAULT_LIMIT = 26;
 export const snapshotsListQuerySchema = z.object({
+  // Optional filter: absent = every team.
+  team: teamKey.optional(),
   limit: z
     .string()
     .regex(/^\d+$/, "limit inválido")
@@ -147,6 +162,7 @@ export const snapshotsListQuerySchema = z.object({
 });
 
 export const historyQuerySchema = z.object({
+  team: teamKey.optional().transform((v) => v ?? TEAM_CAJEROS),
   limit: z
     .string()
     .regex(/^\d+$/, "limit inválido")

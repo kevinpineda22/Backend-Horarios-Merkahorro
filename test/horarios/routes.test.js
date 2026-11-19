@@ -180,3 +180,43 @@ test("PUT accepts expectedVersion null (as 0) and rejects NUL in cargo", () =>
     assert.equal(bad.status, 400);
     assert.equal(bad.json.code, "VALIDATION_ERROR");
   }));
+
+// ------------------------------------------------------------------ team query parameter (migration 015)
+
+test("every week endpoint passes the team: CAJEROS when absent, the normalized ?team= otherwise", () =>
+  withApp(async ({ call, service }) => {
+    const team = encodeURIComponent("cargo:carnicero");
+    await call("GET", path("shifts"), "t-admin");
+    await call("GET", `${path("shifts")}?team=${team}`, "t-admin");
+    await call("PUT", `${path("shifts")}?team=${team}`, "t-planner", SAVE);
+    await call("POST", `${path("publish")}?team=${team}`, "t-planner", { expectedVersion: 1 });
+    await call("GET", `${path("history")}?team=${team}&limit=10`, "t-viewer");
+    await call("GET", path("history"), "t-viewer");
+    const [get0, get1, save, publish, hist1, hist0] = service.calls;
+    assert.deepEqual([get0.at(-1), get1.at(-1)], ["CAJEROS", "CARGO:CARNICERO"]);
+    assert.equal(save.at(-1), "CARGO:CARNICERO");
+    assert.equal(publish.at(-1), "CARGO:CARNICERO");
+    assert.deepEqual([hist1.at(-1), hist1.at(-2), hist0.at(-1)], ["CARGO:CARNICERO", 10, "CAJEROS"]);
+  }));
+
+test("an invalid ?team= is a 400 VALIDATION_ERROR on every week endpoint and nothing reaches the service", () =>
+  withApp(async ({ call, service }) => {
+    for (const [m, p, b] of ALL) {
+      const r = await call(m, `${p}?team=FRUVER`, "t-admin", b);
+      assert.deepEqual([r.status, r.json.code], [400, "VALIDATION_ERROR"], `${m} ${p}`);
+    }
+    assert.equal(service.calls.length, 0);
+  }));
+
+test("the 409 SHIFT_IN_OTHER_TEAM of a save keeps its status, code and conflicts", () => {
+  const service = stubService();
+  service.save = async () => {
+    const e = createHttpError(409, "11111111 ya tiene turno el 2031-01-06 en otro cargo de esta sede (Cajeros). Quítalo allí primero.", "SHIFT_IN_OTHER_TEAM");
+    e.details = { conflicts: [{ cedula: "11111111", fecha: W, otherTeamKey: "CAJEROS" }] };
+    throw e;
+  };
+  return withApp(async ({ call }) => {
+    const r = await call("PUT", `${path("shifts")}?team=CARGO%3AAUXILIAR`, "t-planner", SAVE);
+    assert.deepEqual([r.status, r.json.code, r.json.details.conflicts[0].otherTeamKey], [409, "SHIFT_IN_OTHER_TEAM", "CAJEROS"]);
+  }, service);
+});

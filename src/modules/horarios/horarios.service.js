@@ -5,6 +5,7 @@ import { normalizeWeekPayload } from "./domain/weekPayload.js";
 import { publishBlockers, weekWarnings } from "./domain/weekRules.js";
 import { diffSnapshotRows } from "./domain/snapshotDiff.js";
 import { sanitizeSegmentsForShifts } from "./domain/segments.js";
+import { TEAM_CAJEROS } from "./domain/teams.js";
 
 const WRITER_ROLES = ["admin", "planner"];
 
@@ -89,6 +90,7 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
         scheduleId: schedule.id,
         sedeId: schedule.sede_id,
         weekStart: schedule.week_start,
+        teamKey: schedule.team_key ?? TEAM_CAJEROS,
         scheduleVersion: schedule.version,
         publishedBy: user.id,
         recommendation: snapshot?.recommendation ?? null,
@@ -123,10 +125,10 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
     };
   }
 
-  async function toScheduleDto(row, sedeId, weekStart, nameOf) {
+  async function toScheduleDto(row, sedeId, weekStart, nameOf, teamKey = TEAM_CAJEROS) {
     if (!row) {
       return {
-        sedeId, weekStart, state: "BORRADOR", version: 0,
+        sedeId, weekStart, teamKey, state: "BORRADOR", version: 0,
         updatedBy: null, updatedByName: null, updatedAt: null,
         publishedBy: null, publishedByName: null, publishedAt: null,
       };
@@ -134,6 +136,7 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
     return {
       sedeId: row.sede_id,
       weekStart: row.week_start,
+      teamKey: row.team_key ?? teamKey,
       state: row.state,
       version: row.version,
       updatedBy: row.updated_by ?? null,
@@ -145,20 +148,41 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
     };
   }
 
+  // Cashiers first, then the other teams alphabetically.
+  const teamOf = (r) => r.team_key ?? TEAM_CAJEROS;
+  const byTeam = (a, b) =>
+    (teamOf(a) === TEAM_CAJEROS ? -1 : teamOf(b) === TEAM_CAJEROS ? 1 : 0) || teamOf(a).localeCompare(teamOf(b));
+
+  const toIso = (value) => (value ? new Date(value).toISOString() : null);
+
   // Rows of the same people in every other sede around the week (previous Sunday .. next Monday).
   const neighborRows = (cedulas, weekStart, excludeScheduleId) =>
     repo.listShiftsByCedulas({ cedulas, from: addDays(weekStart, -1), to: addDays(weekStart, 7), excludeScheduleId });
 
   return {
-    async get(access, sedeId, weekStart) {
+    /** One team schedule of the sede-week plus a `teams` summary of every team schedule of that week. */
+    async get(access, sedeId, weekStart, teamKey = TEAM_CAJEROS) {
       assertCanRead(access, sedeId);
       await assertSede(sedeId);
       const nameOf = nameResolver();
-      const schedule = await repo.findSchedule(sedeId, weekStart);
+      const schedule = await repo.findSchedule(sedeId, weekStart, teamKey);
       const rows = schedule ? await repo.listShifts(schedule.id) : [];
+      const teamRows = [...(await repo.listTeamSchedules(sedeId, weekStart))].sort(byTeam);
+      const counts = teamRows.length ? await repo.countPeople(teamRows.map((r) => r.id)) : {};
+      const teams = await Promise.all(
+        teamRows.map(async (r) => ({
+          teamKey: r.team_key ?? TEAM_CAJEROS,
+          state: r.state,
+          version: r.version,
+          publishedAt: r.published_at ?? null,
+          publishedBy: await nameOf(r.published_by),
+          peopleCount: counts[r.id] ?? 0,
+        })),
+      );
       return {
-        schedule: await toScheduleDto(schedule, sedeId, weekStart, nameOf),
+        schedule: await toScheduleDto(schedule, sedeId, weekStart, nameOf, teamKey),
         shifts: rows.map(toShiftDto),
+        teams,
         permissions: permissionsFor(access, sedeId),
       };
     },
@@ -167,10 +191,10 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
      * PUBLICADO -> BORRADOR so the team stops seeing the week. Checks run in the contract order (404, not published,
      * stale version, paid payroll cut) for clear errors; the RPC repeats them under the week lock for concurrency safety.
      */
-    async unpublish(access, user, sedeId, weekStart, { expectedVersion }) {
+    async unpublish(access, user, sedeId, weekStart, { expectedVersion }, teamKey = TEAM_CAJEROS) {
       assertCanWrite(access, sedeId);
       await assertSede(sedeId);
-      const schedule = await repo.findSchedule(sedeId, weekStart);
+      const schedule = await repo.findSchedule(sedeId, weekStart, teamKey);
       if (!schedule) {
         throw createHttpError(404, "Todavía no hay un horario guardado para esta semana.", "SCHEDULE_NOT_FOUND");
       }
@@ -191,12 +215,17 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
         throw err;
       }
 
-      await repo.unpublishWeek({ sedeId, weekStart, expectedVersion, actor: user.id });
-      const draft = await repo.findSchedule(sedeId, weekStart);
-      return { schedule: await toScheduleDto(draft, sedeId, weekStart, nameResolver()), warnings: [] };
+      await repo.unpublishWeek({ sedeId, weekStart, teamKey, expectedVersion, actor: user.id });
+      const draft = await repo.findSchedule(sedeId, weekStart, teamKey);
+      return { schedule: await toScheduleDto(draft, sedeId, weekStart, nameResolver(), teamKey), warnings: [] };
     },
 
-    /** Schedules of a sede by state, newest week first, with their head-count. Two repo calls, no N+1. */
+    /**
+     * Weeks of a sede that have at least one team schedule in `status`, newest first, one item per WEEK. Two repo calls.
+     * `status` of the item is the requested one (the week qualifies because some team has it); `peopleCount`,
+     * `publishedAt` and `publishedBy` aggregate only the teams in that state (latest publication wins); `version` is the
+     * cashier team's when it matches, else the first matching team's. `teams` lists every team of the week.
+     */
     async listSchedules(access, sedeId, { status, limit }) {
       assertCanRead(access, sedeId);
       await assertSede(sedeId);
@@ -204,25 +233,52 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
       if (rows.length === 0) return [];
       const counts = await repo.countPeople(rows.map((r) => r.id));
       const nameOf = nameResolver();
+
+      const weeks = new Map();
+      for (const r of rows) {
+        if (!weeks.has(r.week_start)) weeks.set(r.week_start, []);
+        weeks.get(r.week_start).push(r);
+      }
+
       return Promise.all(
-        rows.map(async (r) => ({
-          weekStart: r.week_start,
-          status: r.state,
-          version: r.version,
-          publishedAt: r.published_at ? new Date(r.published_at).toISOString() : null,
-          publishedBy: await nameOf(r.published_by),
-          peopleCount: counts[r.id] ?? 0,
-        })),
+        [...weeks.entries()].map(async ([weekStart, weekRows]) => {
+          const teamRows = [...weekRows].sort(byTeam);
+          // The repo only returns weeks with a team in `status`; the fallback keeps an odd row set from crashing the list.
+          const inStatus = teamRows.filter((r) => r.state === status);
+          const matching = inStatus.length ? inStatus : teamRows;
+          const weekStatus = inStatus.length ? status : teamRows.some((r) => r.state === "PUBLICADO") ? "PUBLICADO" : "BORRADOR";
+          const latest = matching
+            .filter((r) => r.state === "PUBLICADO")
+            .reduce((best, r) => (!best || new Date(r.published_at) > new Date(best.published_at) ? r : best), null);
+          return {
+            weekStart,
+            status: weekStatus,
+            version: (matching.find((r) => r.team_key === TEAM_CAJEROS) ?? matching[0]).version,
+            publishedAt: toIso(latest?.published_at),
+            publishedBy: latest ? await nameOf(latest.published_by) : null,
+            peopleCount: matching.reduce((sum, r) => sum + (counts[r.id] ?? 0), 0),
+            teams: await Promise.all(
+              teamRows.map(async (r) => ({
+                teamKey: r.team_key,
+                status: r.state,
+                version: r.version,
+                publishedAt: toIso(r.published_at),
+                publishedBy: await nameOf(r.published_by),
+                peopleCount: counts[r.id] ?? 0,
+              })),
+            ),
+          };
+        }),
       );
     },
 
-    async save(access, user, sedeId, weekStart, { expectedVersion, cedulas, shifts, segments = null }) {
+    async save(access, user, sedeId, weekStart, { expectedVersion, cedulas, shifts, segments = null }, teamKey = TEAM_CAJEROS) {
       assertCanWrite(access, sedeId);
       await assertSede(sedeId);
       const normalized = normalizeWeekPayload({ weekStart, cedulas, shifts });
 
       // The payload replaces the sent cedulas of this sede-week; everything else comes from other schedules.
-      const current = await repo.findSchedule(sedeId, weekStart);
+      const current = await repo.findSchedule(sedeId, weekStart, teamKey);
       const others = await neighborRows(cedulas, weekStart, current?.id ?? null);
       const ruleRows = [...normalized.map(payloadRuleRow(sedeId)), ...others.map(toRuleRow)];
       const scope = workingCedulas(normalized);
@@ -243,26 +299,26 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
 
       // Only an already published week keeps a frozen split; the saved shifts are the truth the segments must fit.
       const frozen = current?.state === "PUBLICADO" ? freezableSegments(normalized, segments, { sedeId, weekStart }) : null;
-      await repo.saveWeek({ sedeId, weekStart, expectedVersion, cedulas, shifts: normalized, actor: user.id, segments: frozen });
+      await repo.saveWeek({ sedeId, weekStart, teamKey, expectedVersion, cedulas, shifts: normalized, actor: user.id, segments: frozen });
 
       const nameOf = nameResolver();
-      const saved = await repo.findSchedule(sedeId, weekStart);
+      const saved = await repo.findSchedule(sedeId, weekStart, teamKey);
       const rows = await repo.listShifts(saved.id);
-      return { schedule: await toScheduleDto(saved, sedeId, weekStart, nameOf), shifts: rows.map(toShiftDto), warnings };
+      return { schedule: await toScheduleDto(saved, sedeId, weekStart, nameOf, teamKey), shifts: rows.map(toShiftDto), warnings };
     },
 
-    async publish(access, user, sedeId, weekStart, { expectedVersion, snapshot = null, segments = null }) {
+    async publish(access, user, sedeId, weekStart, { expectedVersion, snapshot = null, segments = null }, teamKey = TEAM_CAJEROS) {
       assertCanWrite(access, sedeId);
       await assertSede(sedeId);
       const nameOf = nameResolver();
-      const schedule = await repo.findSchedule(sedeId, weekStart);
+      const schedule = await repo.findSchedule(sedeId, weekStart, teamKey);
       if (!schedule) {
         throw createHttpError(404, "Todavía no hay un horario guardado para esta semana.", "SCHEDULE_NOT_FOUND");
       }
 
       // Idempotent: whatever the version, a published week is returned as it is. No blockers are evaluated.
       if (schedule.state === "PUBLICADO") {
-        return { schedule: await toScheduleDto(schedule, sedeId, weekStart, nameOf), warnings: [], alreadyPublished: true };
+        return { schedule: await toScheduleDto(schedule, sedeId, weekStart, nameOf, teamKey), warnings: [], alreadyPublished: true };
       }
 
       if (schedule.version !== expectedVersion) {
@@ -275,6 +331,8 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
         throw err;
       }
 
+      // Blockers are evaluated over THIS team's stored rows only; neighborRows still reads every other schedule of the
+      // same people (other sedes and sibling teams), which is what the 56 h / rest rules need.
       const storedRows = await repo.listShifts(schedule.id);
       const stored = storedRows.map(toRuleRow);
       const scope = workingCedulas(stored);
@@ -290,11 +348,11 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
 
       // Atomic with the state change (migration 014). Absent segments = the old publish, which also works without 014.
       const frozen = freezableSegments(storedRows.map(toShiftDto), segments, { sedeId, weekStart });
-      const result = await repo.publishWeek({ sedeId, weekStart, expectedVersion, actor: user.id, segments: frozen });
-      const published = await repo.findSchedule(sedeId, weekStart);
+      const result = await repo.publishWeek({ sedeId, weekStart, teamKey, expectedVersion, actor: user.id, segments: frozen });
+      const published = await repo.findSchedule(sedeId, weekStart, teamKey);
       const snapshotSaved = result?.noop ? false : await saveSnapshot(published, user, snapshot);
       return {
-        schedule: await toScheduleDto(published, sedeId, weekStart, nameOf),
+        schedule: await toScheduleDto(published, sedeId, weekStart, nameOf, teamKey),
         warnings: weekWarnings(ruleRows, weekStart, scope),
         alreadyPublished: Boolean(result?.noop),
         snapshotSaved,
@@ -303,15 +361,16 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
     },
 
     /** Publish snapshots of a sede, newest first: who published, when, and how much differs from the suggestion. */
-    async listSnapshots(access, sedeId, { limit }) {
+    async listSnapshots(access, sedeId, { limit, team = null }) {
       assertCanRead(access, sedeId);
       await assertSede(sedeId);
       const nameOf = nameResolver();
-      const rows = await snapshotsRepo.listBySede({ sedeId, limit });
+      const rows = await snapshotsRepo.listBySede({ sedeId, limit, teamKey: team });
       return Promise.all(
         rows.map(async (s) => ({
           id: s.id,
           weekStart: s.weekStart,
+          teamKey: s.teamKey,
           scheduleVersion: s.scheduleVersion,
           publishedAt: s.publishedAt,
           publishedBy: await nameOf(s.publishedBy),
@@ -330,6 +389,7 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
       return {
         id: s.id,
         weekStart: s.weekStart,
+        teamKey: s.teamKey,
         scheduleVersion: s.scheduleVersion,
         publishedAt: s.publishedAt,
         publishedBy: await nameResolver()(s.publishedBy),
@@ -340,10 +400,10 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
       };
     },
 
-    async history(access, sedeId, weekStart, limit) {
+    async history(access, sedeId, weekStart, limit, teamKey = TEAM_CAJEROS) {
       assertCanRead(access, sedeId);
       await assertSede(sedeId);
-      const schedule = await repo.findSchedule(sedeId, weekStart);
+      const schedule = await repo.findSchedule(sedeId, weekStart, teamKey);
       if (!schedule) return { items: [] };
       const nameOf = nameResolver();
       const rows = await repo.listHistory({ scheduleId: schedule.id, limit });

@@ -215,3 +215,25 @@ test("directory outage -> 503 with a Spanish message that hides the upstream det
     return true;
   });
 });
+
+test("several team schedules in the same week: only the published ones show, merged into one week", async () => {
+  // SCHED_A (published team) and SCHED_B (a draft team of the same sede-week) both hold rows of this employee's week.
+  const { service } = build({
+    schedules: [{ id: SCHED_A, week_start: "2026-11-09" }],
+    shifts: [
+      shiftRow({ schedule_id: SCHED_A, fecha: "2026-11-10" }),
+      shiftRow({ schedule_id: SCHED_B, fecha: "2026-11-11" }),
+    ],
+  });
+  const { data } = await call(service);
+  assert.equal(data.semanas.length, 1);
+  assert.deepEqual(data.semanas[0].dias.map((d) => d.fecha), ["2026-11-10"]);
+
+  const both = build({
+    schedules: [{ id: SCHED_A, week_start: "2026-11-09" }, { id: SCHED_B, week_start: "2026-11-09" }],
+    shifts: [shiftRow({ schedule_id: SCHED_A, fecha: "2026-11-10" }), shiftRow({ schedule_id: SCHED_B, fecha: "2026-11-11" })],
+  });
+  const week = (await call(both.service)).data.semanas;
+  assert.equal(week.length, 1);
+  assert.deepEqual(week[0].dias.map((d) => d.fecha), ["2026-11-10", "2026-11-11"]);
+});

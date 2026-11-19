@@ -31,14 +31,20 @@ const dbRow = (r, sede = "copacabana", schedule = SCHED) => ({
   observacion: r.observacion ?? null, updated_by: ADMIN, updated_at: "t1",
 });
 
-function fakes({ schedule = null, rows = [], neighbors = [], sedes = ["copacabana", "las-vegas"], paidCut = null, snapshotsRepo, logger } = {}) {
+function fakes({ schedule = null, rows = [], neighbors = [], siblings = [], sedes = ["copacabana", "las-vegas"], paidCut = null, snapshotsRepo, logger } = {}) {
   const state = { schedule, rows: [...rows] };
   const calls = [];
   const repo = {
     calls,
     state,
     async findSede(id) { calls.push(["findSede", id]); return sedes.includes(id) ? { sede_id: id, siesa_code: "001" } : null; },
-    async findSchedule() { calls.push(["findSchedule"]); return state.schedule; },
+    // One stored schedule at most; it answers only for its own team (CAJEROS unless the fixture says otherwise).
+    async findSchedule(sedeId, weekStart, teamKey) {
+      calls.push(["findSchedule", teamKey]);
+      return state.schedule && (state.schedule.team_key ?? "CAJEROS") === teamKey ? state.schedule : null;
+    },
+    async listTeamSchedules() { calls.push(["listTeamSchedules"]); return state.schedule ? [state.schedule, ...siblings] : [...siblings]; },
+    async countPeople(ids) { calls.push(["countPeople", ids]); return Object.fromEntries(ids.map((id) => [id, 2])); },
     async findPaidCutOverlapping(from, to) { calls.push(["findPaidCutOverlapping", from, to]); return paidCut; },
     async listShifts() { calls.push(["listShifts"]); return state.rows; },
     async listShiftsByCedulas(args) {
@@ -53,7 +59,7 @@ function fakes({ schedule = null, rows = [], neighbors = [], sedes = ["copacaban
         throw e;
       }
       state.schedule = {
-        id: SCHED, sede_id: args.sedeId, week_start: args.weekStart, state: state.schedule?.state ?? "BORRADOR",
+        id: SCHED, sede_id: args.sedeId, week_start: args.weekStart, team_key: args.teamKey, state: state.schedule?.state ?? "BORRADOR",
         version: (state.schedule?.version ?? 0) + 1, published_by: state.schedule?.published_by ?? null,
         published_at: state.schedule?.published_at ?? null, created_by: args.actor, created_at: "t0", updated_by: args.actor, updated_at: "t2",
       };
@@ -86,8 +92,9 @@ test("get on a week that was never saved answers version 0, BORRADOR and no shif
   const { service } = fakes();
   const out = await service.get(access.planner, "copacabana", W);
   assert.deepEqual(out, {
-    schedule: { sedeId: "copacabana", weekStart: W, state: "BORRADOR", version: 0, updatedBy: null, updatedByName: null, updatedAt: null, publishedBy: null, publishedByName: null, publishedAt: null },
+    schedule: { sedeId: "copacabana", weekStart: W, teamKey: "CAJEROS", state: "BORRADOR", version: 0, updatedBy: null, updatedByName: null, updatedAt: null, publishedBy: null, publishedByName: null, publishedAt: null },
     shifts: [],
+    teams: [],
     permissions: { canEdit: true, canPublish: true },
   });
 });
@@ -264,11 +271,99 @@ test("hours worked in another sede block the publication", async () => {
 test("a clean publish calls the RPC with the expected version and returns the new state", async () => {
   const { service, repo } = fakes({ schedule: stored(), rows: ready() });
   const out = await service.publish(access.planner, user(PLANNER), "copacabana", W, { expectedVersion: 1 });
-  assert.deepEqual(called(repo, "publishWeek")[0][1], { sedeId: "copacabana", weekStart: W, expectedVersion: 1, actor: PLANNER, segments: null });
+  assert.deepEqual(called(repo, "publishWeek")[0][1], { sedeId: "copacabana", weekStart: W, teamKey: "CAJEROS", expectedVersion: 1, actor: PLANNER, segments: null });
   assert.equal(out.alreadyPublished, false);
   assert.equal(out.schedule.state, "PUBLICADO");
   assert.equal(out.schedule.version, 2);
   assert.equal(out.schedule.publishedByName, "Paula Planner");
+});
+
+// ------------------------------------------------------------------ teams (migration 015)
+
+const CARNES = "CARGO:CARNICERO";
+const SIBLING = { id: U("b"), sede_id: "copacabana", week_start: W, team_key: CARNES, state: "PUBLICADO", version: 4, published_by: ADMIN, published_at: "2031-01-10T15:00:00+00:00" };
+
+test("get answers the requested team and summarizes every team of the sede-week", async () => {
+  const { service, repo } = fakes({ schedule: stored({ team_key: CARNES }), siblings: [{ ...SIBLING, team_key: "CAJEROS", state: "BORRADOR", version: 2, published_by: null, published_at: null }] });
+  const out = await service.get(access.admin, "copacabana", W, CARNES);
+  assert.equal(out.schedule.teamKey, CARNES);
+  assert.deepEqual(called(repo, "findSchedule")[0], ["findSchedule", CARNES]);
+  assert.deepEqual(out.teams.map((t) => [t.teamKey, t.state, t.version, t.peopleCount]), [["CAJEROS", "BORRADOR", 2, 2], [CARNES, "BORRADOR", 1, 2]]);
+});
+
+test("get of a team that has no schedule yet is an empty draft of THAT team, even when another team exists", async () => {
+  const { service } = fakes({ schedule: stored() }); // only CAJEROS exists
+  const out = await service.get(access.admin, "copacabana", W, CARNES);
+  assert.deepEqual([out.schedule.teamKey, out.schedule.version, out.shifts], [CARNES, 0, []]);
+  assert.deepEqual(out.teams.map((t) => t.teamKey), ["CAJEROS"]);
+});
+
+test("get defaults to CAJEROS when no team is given", async () => {
+  const { service, repo } = fakes({ schedule: stored() });
+  const out = await service.get(access.admin, "copacabana", W);
+  assert.equal(out.schedule.teamKey, "CAJEROS");
+  assert.deepEqual(called(repo, "findSchedule")[0], ["findSchedule", "CAJEROS"]);
+});
+
+test("save sends the team to the repo and returns that team's schedule", async () => {
+  const { service, repo } = fakes();
+  const out = await service.save(access.planner, user(PLANNER), "copacabana", W, { expectedVersion: 0, cedulas: ["11111111"], shifts: [work("11111111", DAYS[0])] }, CARNES);
+  assert.equal(called(repo, "saveWeek")[0][1].teamKey, CARNES);
+  assert.deepEqual(called(repo, "findSchedule").map((c) => c[1]), [CARNES, CARNES]);
+  assert.equal(out.schedule.teamKey, CARNES);
+});
+
+test("save without a team uses CAJEROS", async () => {
+  const { service, repo } = fakes();
+  await service.save(access.planner, user(PLANNER), "copacabana", W, { expectedVersion: 0, cedulas: ["11111111"], shifts: [work("11111111", DAYS[0])] });
+  assert.equal(called(repo, "saveWeek")[0][1].teamKey, "CAJEROS");
+});
+
+test("save surfaces the repo's 409 SHIFT_IN_OTHER_TEAM untouched and writes nothing else", async () => {
+  const { service, repo } = fakes();
+  repo.saveWeek = async () => {
+    const e = createHttpError(409, "dup", "SHIFT_IN_OTHER_TEAM");
+    e.details = { conflicts: [{ cedula: "11111111", fecha: DAYS[0], otherTeamKey: "CAJEROS" }] };
+    throw e;
+  };
+  await assert.rejects(
+    service.save(access.planner, user(PLANNER), "copacabana", W, { expectedVersion: 0, cedulas: ["11111111"], shifts: [work("11111111", DAYS[0])] }, CARNES),
+    (e) => e.statusCode === 409 && e.code === "SHIFT_IN_OTHER_TEAM" && e.details.conflicts[0].otherTeamKey === "CAJEROS",
+  );
+});
+
+test("publish acts on the requested team only: another team's schedule is not found", async () => {
+  const { service, repo } = fakes({ schedule: stored(), rows: ready() }); // CAJEROS exists, CARNICERO does not
+  await assert.rejects(service.publish(access.admin, user(ADMIN), "copacabana", W, { expectedVersion: 1 }, CARNES), code(404, "SCHEDULE_NOT_FOUND"));
+  assert.equal(called(repo, "publishWeek").length, 0);
+});
+
+test("publish passes the team and evaluates blockers over that team's rows only", async () => {
+  // This team is clean. Its sibling (same sede-week) is NOT part of the evaluation: only the people of this schedule count.
+  const { service, repo } = fakes({ schedule: stored({ team_key: CARNES }), rows: ready() });
+  const out = await service.publish(access.admin, user(ADMIN), "copacabana", W, { expectedVersion: 1 }, CARNES);
+  assert.equal(called(repo, "publishWeek")[0][1].teamKey, CARNES);
+  assert.equal(out.schedule.teamKey, CARNES);
+  assert.deepEqual(called(repo, "listShiftsByCedulas")[0][1].cedulas, ["11111111"]);
+  assert.equal(called(repo, "listShiftsByCedulas")[0][1].excludeScheduleId, SCHED);
+});
+
+test("publish of an already published team is a no-op that keeps the team in the answer", async () => {
+  const { service } = fakes({ schedule: stored({ team_key: CARNES, state: "PUBLICADO", published_by: ADMIN, published_at: "t9" }) });
+  const out = await service.publish(access.admin, user(ADMIN), "copacabana", W, { expectedVersion: 1 }, CARNES);
+  assert.deepEqual([out.alreadyPublished, out.schedule.teamKey], [true, CARNES]);
+});
+
+test("unpublish and history are scoped by team", async () => {
+  const { service, repo } = fakes({ schedule: stored({ team_key: CARNES, state: "PUBLICADO", version: 3, published_by: ADMIN, published_at: "t9" }) });
+  repo.unpublishWeek = async (args) => { repo.calls.push(["unpublishWeek", args]); repo.state.schedule = { ...repo.state.schedule, state: "BORRADOR", version: 4, published_by: null, published_at: null }; };
+  await assert.rejects(service.unpublish(access.admin, user(ADMIN), "copacabana", W, { expectedVersion: 3 }), code(404, "SCHEDULE_NOT_FOUND")); // default CAJEROS
+  const out = await service.unpublish(access.admin, user(ADMIN), "copacabana", W, { expectedVersion: 3 }, CARNES);
+  assert.equal(called(repo, "unpublishWeek")[0][1].teamKey, CARNES);
+  assert.deepEqual([out.schedule.teamKey, out.schedule.state], [CARNES, "BORRADOR"]);
+  assert.deepEqual((await service.history(access.viewer, "copacabana", W, 25)), { items: [] }); // CAJEROS history: none
+  await service.history(access.viewer, "copacabana", W, 25, CARNES);
+  assert.deepEqual(called(repo, "listHistory")[0][1], { scheduleId: SCHED, limit: 25 });
 });
 
 // ------------------------------------------------------------------ history

@@ -110,3 +110,38 @@ test("NUL characters are rejected in free-text fields", () => {
   bad(saveBodySchema, body({ shifts: [shift({ observacion: "a\u0000" })] }));
   ok(saveBodySchema, body({ shifts: [shift({ cargo: "Cajero", observacion: "ok" })] }));
 });
+
+// ------------------------------------------------------------------ team (migration 015)
+
+import { snapshotsListQuerySchema, teamQuerySchema } from "../../src/modules/horarios/horarios.schemas.js";
+import { isValidTeamKey, normalizeTeamKey, teamKeyForCargo } from "../../src/modules/horarios/domain/teams.js";
+
+test("teamQuerySchema: absent means CAJEROS; values are trimmed and uppercased", () => {
+  assert.equal(teamQuerySchema.parse({}).team, "CAJEROS");
+  assert.equal(teamQuerySchema.parse({ team: "CAJEROS" }).team, "CAJEROS");
+  assert.equal(teamQuerySchema.parse({ team: " sin_cargo " }).team, "SIN_CARGO");
+  assert.equal(teamQuerySchema.parse({ team: "cargo:auxiliar de bodega" }).team, "CARGO:AUXILIAR DE BODEGA");
+  assert.equal(teamQuerySchema.parse({ team: "cargo:ñandú" }).team, "CARGO:ÑANDÚ");
+});
+
+test("teamQuerySchema: rejects anything that is not CAJEROS, SIN_CARGO or CARGO:<cargo> within 120 characters", () => {
+  for (const team of ["", "  ", "CARGO:", "CARGO: ", "CARNICERO", "CAJERO", "CARGO", "CARGO:" + "A".repeat(115), "CARGO:A\nB"]) {
+    bad(teamQuerySchema, { team });
+  }
+  ok(teamQuerySchema, { team: "CARGO:" + "A".repeat(114) }); // exactly 120
+});
+
+test("teams domain helpers", () => {
+  assert.equal(normalizeTeamKey("  cargo:x "), "CARGO:X");
+  assert.equal(isValidTeamKey("CAJEROS"), true);
+  assert.equal(isValidTeamKey("cajeros"), false);
+  assert.equal(teamKeyForCargo(" carnicero "), "CARGO:CARNICERO");
+  assert.equal(teamKeyForCargo(""), "SIN_CARGO");
+  assert.equal(teamKeyForCargo(null), "SIN_CARGO");
+});
+
+test("historyQuerySchema also carries the team (default CAJEROS)", () => {
+  assert.equal(historyQuerySchema.parse({}).team, "CAJEROS");
+  assert.equal(historyQuerySchema.parse({ team: "cargo:x" }).team, "CARGO:X");
+  assert.equal(snapshotsListQuerySchema.parse({ limit: "5" }).team, undefined);
+});

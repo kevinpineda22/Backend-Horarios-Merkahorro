@@ -44,7 +44,7 @@ const unpublish = (client) => createHorariosRepo(client).unpublishWeek({ sedeId:
 test("repo.unpublishWeek calls shifts_unpublish_week with the exact parameter names", async () => {
   const { log, client } = fakeClient({ rpcs: { shifts_unpublish_week: { data: { id: SCHED, version: 5 }, error: null } } });
   assert.deepEqual(await unpublish(client), { id: SCHED, version: 5 });
-  assert.deepEqual(log, [["rpc", "shifts_unpublish_week", { p_sede: "copacabana", p_week: W, p_expected_version: 4, p_actor: ADMIN }]]);
+  assert.deepEqual(log, [["rpc", "shifts_unpublish_week", { p_sede: "copacabana", p_week: W, p_team: "CAJEROS", p_expected_version: 4, p_actor: ADMIN }]]);
 });
 
 test("repo.unpublishWeek maps the RPC exceptions to HTTP errors", async () => {
@@ -110,13 +110,13 @@ test("service.unpublish returns the schedule DTO back in BORRADOR with version +
   const out = await service.unpublish(access.planner, { id: PLANNER }, "copacabana", W, { expectedVersion: 4 });
   assert.deepEqual(out, {
     schedule: {
-      sedeId: "copacabana", weekStart: W, state: "BORRADOR", version: 5,
+      sedeId: "copacabana", weekStart: W, teamKey: "CAJEROS", state: "BORRADOR", version: 5,
       updatedBy: PLANNER, updatedByName: "Paula Planner", updatedAt: "t5",
       publishedBy: null, publishedByName: null, publishedAt: null,
     },
     warnings: [],
   });
-  assert.deepEqual(repo.calls.find((c) => c[0] === "unpublishWeek")[1], { sedeId: "copacabana", weekStart: W, expectedVersion: 4, actor: PLANNER });
+  assert.deepEqual(repo.calls.find((c) => c[0] === "unpublishWeek")[1], { sedeId: "copacabana", weekStart: W, teamKey: "CAJEROS", expectedVersion: 4, actor: PLANNER });
   assert.deepEqual(repo.state.history, [{ action: "DESPUBLICAR", actor: PLANNER, schedule_version: 5 }]);
 });
 
@@ -239,8 +239,23 @@ test("route: planners (own sede) and admins (any sede) unpublish; the answer is 
     assert.equal(a.status, 200);
     assert.deepEqual(a.json, { data: { schedule: { state: "BORRADOR" } }, warnings: [] });
     assert.equal((await call(p("las-vegas"), "t-admin", BODY)).status, 200);
-    assert.deepEqual(calls[0], [{ role: "planner", sedeIds: ["copacabana"] }, { id: PLANNER, email: "x@x.co", emailConfirmed: true }, "copacabana", W, { expectedVersion: 4 }]);
+    assert.deepEqual(calls[0], [{ role: "planner", sedeIds: ["copacabana"] }, { id: PLANNER, email: "x@x.co", emailConfirmed: true }, "copacabana", W, { expectedVersion: 4 }, "CAJEROS"]);
     assert.equal(calls[1][2], "las-vegas");
+  }));
+
+test("route: ?team= is validated, normalized (trim + uppercase) and passed to the service; absent means CAJEROS", () =>
+  withApp(async ({ call, calls }) => {
+    assert.equal((await call(`${p()}?team=${encodeURIComponent(" cargo:carnicero ")}`, "t-planner", BODY)).status, 200);
+    assert.equal(calls[0][5], "CARGO:CARNICERO");
+    assert.equal((await call(`${p()}?team=SIN_CARGO`, "t-planner", BODY)).status, 200);
+    assert.equal(calls[1][5], "SIN_CARGO");
+    assert.equal((await call(p(), "t-planner", BODY)).status, 200);
+    assert.equal(calls[2][5], "CAJEROS");
+    for (const bad of ["", "CARGO:", "FRUVER", "cargo", "x".repeat(130)]) {
+      const r = await call(`${p()}?team=${encodeURIComponent(bad)}`, "t-planner", BODY);
+      assert.deepEqual([r.status, r.json.code], [400, "VALIDATION_ERROR"], bad);
+    }
+    assert.equal(calls.length, 3);
   }));
 
 test("route: an invalid weekStart or body is 400 VALIDATION_ERROR", () =>

@@ -132,7 +132,7 @@ function rpcClient(handler) {
 test("publishWeek with segments sends them in the same RPC and reports segmentsSaved", async () => {
   const client = rpcClient(() => ({ data: { id: "s", noop: false }, error: null }));
   const out = await createHorariosRepo(client).publishWeek({ ...base, segments: split });
-  assert.deepEqual(client.calls, [["shifts_publish_week", { p_sede: "copacabana", p_week: "2031-01-06", p_expected_version: 4, p_actor: ACTOR, p_segments: split }]]);
+  assert.deepEqual(client.calls, [["shifts_publish_week", { p_sede: "copacabana", p_week: "2031-01-06", p_team: "CAJEROS", p_expected_version: 4, p_actor: ACTOR, p_segments: split }]]);
   assert.equal(out.segmentsSaved, true);
   assert.equal(out.noop, false);
 });

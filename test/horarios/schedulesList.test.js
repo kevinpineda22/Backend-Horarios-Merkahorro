@@ -62,19 +62,36 @@ function fakeClient({ tables = {}, rpcs = {} } = {}) {
 }
 const has = (log, ...call) => log.some((c) => JSON.stringify(c) === JSON.stringify(call));
 
-test("repo.listSchedules: ONE query filtered by sede and state, newest week first, limited", async () => {
-  const rows = [{ id: S1, week_start: "2031-01-13" }];
+test("repo.listSchedules: matching weeks first, then every team row of those weeks, newest week first", async () => {
+  const rows = [{ id: S1, week_start: "2031-01-13", team_key: "CAJEROS" }, { id: S2, week_start: "2031-01-13", team_key: "CARGO:CARNICERO" }];
   const { log, client } = fakeClient({ tables: { sede_week_schedules: { data: rows, error: null } } });
   const out = await createHorariosRepo(client).listSchedules({ sedeId: "copacabana", status: "PUBLICADO", limit: 26 });
   assert.deepEqual(out, rows);
-  assert.equal(log.filter((c) => c[0] === "from").length, 1);
+  assert.equal(log.filter((c) => c[0] === "from").length, 2);
   assert.ok(has(log, "from", "sede_week_schedules"));
   assert.ok(has(log, "eq", "sede_id", "copacabana"));
   assert.ok(has(log, "eq", "state", "PUBLICADO"));
   assert.ok(has(log, "order", "week_start", { ascending: false }));
-  assert.ok(has(log, "limit", 26));
-  const select = log.find((c) => c[0] === "select")[1];
-  for (const col of ["id", "week_start", "state", "version", "published_by", "published_at"]) assert.match(select, new RegExp(`\\b${col}\\b`));
+  // Two rows share a week: the second query asks for ONE distinct week, whatever the state.
+  assert.ok(has(log, "in", "week_start", ["2031-01-13"]));
+  assert.equal(log.filter((c) => c[0] === "eq" && c[1] === "state").length, 1);
+  const select = log.filter((c) => c[0] === "select").at(-1)[1];
+  for (const col of ["id", "week_start", "team_key", "state", "version", "published_by", "published_at"]) assert.match(select, new RegExp(`\\b${col}\\b`));
+});
+
+test("repo.listSchedules: no matching week skips the second query", async () => {
+  const { log, client } = fakeClient();
+  assert.deepEqual(await createHorariosRepo(client).listSchedules({ sedeId: "copacabana", status: "PUBLICADO", limit: 26 }), []);
+  assert.equal(log.filter((c) => c[0] === "from").length, 1);
+});
+
+test("repo.listTeamSchedules: every team of one sede-week", async () => {
+  const rows = [{ id: S1, team_key: "CAJEROS" }];
+  const { log, client } = fakeClient({ tables: { sede_week_schedules: { data: rows, error: null } } });
+  assert.deepEqual(await createHorariosRepo(client).listTeamSchedules("copacabana", "2031-01-13"), rows);
+  assert.ok(has(log, "eq", "sede_id", "copacabana"));
+  assert.ok(has(log, "eq", "week_start", "2031-01-13"));
+  assert.equal(log.some((c) => c[0] === "eq" && c[1] === "team_key"), false);
 });
 
 test("repo.listSchedules: errors propagate and null data is an empty list", async () => {
@@ -108,7 +125,7 @@ const access = {
   viewer: { role: "viewer", sedeIds: ["copacabana"] },
 };
 const sch = (id, weekStart, over = {}) => ({
-  id, sede_id: "copacabana", week_start: weekStart, state: "PUBLICADO", version: 3, published_by: ADMIN, published_at: "2031-01-10T15:00:00+00:00",
+  id, sede_id: "copacabana", week_start: weekStart, team_key: "CAJEROS", state: "PUBLICADO", version: 3, published_by: ADMIN, published_at: "2031-01-10T15:00:00+00:00",
   created_by: ADMIN, created_at: "t", updated_by: ADMIN, updated_at: "t", ...over,
 });
 
@@ -131,9 +148,56 @@ test("service.listSchedules maps the contract shape, newest week first as the re
   });
   const out = await service.listSchedules(access.viewer, "copacabana", { status: "PUBLICADO", limit: 26 });
   assert.deepEqual(out, [
-    { weekStart: "2031-01-13", status: "PUBLICADO", version: 3, publishedAt: "2031-01-10T15:00:00.000Z", publishedBy: "Ana Admin", peopleCount: 14 },
-    { weekStart: "2031-01-06", status: "BORRADOR", version: 1, publishedAt: null, publishedBy: null, peopleCount: 3 },
+    {
+      weekStart: "2031-01-13", status: "PUBLICADO", version: 3, publishedAt: "2031-01-10T15:00:00.000Z", publishedBy: "Ana Admin", peopleCount: 14,
+      teams: [{ teamKey: "CAJEROS", status: "PUBLICADO", version: 3, publishedAt: "2031-01-10T15:00:00.000Z", publishedBy: "Ana Admin", peopleCount: 14 }],
+    },
+    {
+      weekStart: "2031-01-06", status: "BORRADOR", version: 1, publishedAt: null, publishedBy: null, peopleCount: 3,
+      teams: [{ teamKey: "CAJEROS", status: "BORRADOR", version: 1, publishedAt: null, publishedBy: null, peopleCount: 3 }],
+    },
   ]);
+});
+
+test("service.listSchedules groups the team schedules of a week into ONE item", async () => {
+  const { service } = fakes({
+    schedules: [
+      sch(S1, "2031-01-13", { team_key: "CARGO:CARNICERO", version: 2, published_at: "2031-01-11T10:00:00+00:00" }),
+      sch(S2, "2031-01-13", { team_key: "CAJEROS", version: 5 }),
+      sch(S3, "2031-01-13", { team_key: "CARGO:AUXILIAR", state: "BORRADOR", version: 1, published_by: null, published_at: null }),
+    ],
+    counts: { [S1]: 4, [S2]: 14, [S3]: 6 },
+  });
+  const out = await service.listSchedules(access.admin, "copacabana", { status: "PUBLICADO", limit: 26 });
+  assert.equal(out.length, 1);
+  const [week] = out;
+  assert.equal(week.status, "PUBLICADO");
+  assert.equal(week.peopleCount, 18); // published teams only: 14 + 4
+  assert.equal(week.version, 5); // the cashier team's version
+  assert.equal(week.publishedAt, "2031-01-11T10:00:00.000Z"); // latest publication wins
+  assert.deepEqual(week.teams.map((t) => [t.teamKey, t.status, t.peopleCount]), [
+    ["CAJEROS", "PUBLICADO", 14],
+    ["CARGO:AUXILIAR", "BORRADOR", 6],
+    ["CARGO:CARNICERO", "PUBLICADO", 4],
+  ]);
+});
+
+test("service.listSchedules: a week without published cashiers still lists with the published cargo", async () => {
+  const { service } = fakes({
+    schedules: [sch(S1, "2031-01-13", { team_key: "CARGO:CARNICERO", version: 2 }), sch(S2, "2031-01-13", { team_key: "CAJEROS", state: "BORRADOR", published_by: null, published_at: null })],
+    counts: { [S1]: 4, [S2]: 14 },
+  });
+  const [week] = await service.listSchedules(access.admin, "copacabana", { status: "PUBLICADO", limit: 26 });
+  assert.deepEqual([week.version, week.peopleCount, week.teams.length], [2, 4, 2]);
+});
+
+test("service.listSchedules with BORRADOR counts only the draft teams", async () => {
+  const { service } = fakes({
+    schedules: [sch(S1, "2031-01-13", { team_key: "CAJEROS" }), sch(S2, "2031-01-13", { team_key: "CARGO:CARNICERO", state: "BORRADOR", version: 1, published_by: null, published_at: null })],
+    counts: { [S1]: 14, [S2]: 4 },
+  });
+  const [week] = await service.listSchedules(access.admin, "copacabana", { status: "BORRADOR", limit: 26 });
+  assert.deepEqual([week.status, week.peopleCount, week.publishedAt, week.publishedBy, week.version], ["BORRADOR", 4, null, null, 1]);
 });
 
 test("service.listSchedules: unknown publisher name -> null; schedule without rows -> peopleCount 0", async () => {

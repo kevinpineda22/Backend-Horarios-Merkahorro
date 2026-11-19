@@ -2,7 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "../../shared/http/asyncHandler.js";
 import { validate } from "../../shared/http/validate.js";
 import { loadAccess, requireRole, requireSede } from "../../shared/http/authorize.js";
-import { historyQuerySchema, publishBodySchema, saveBodySchema, schedulesListQuerySchema, snapshotParamsSchema, snapshotsListQuerySchema, unpublishBodySchema, sedeParamsSchema, weekParamsSchema } from "./horarios.schemas.js";
+import { historyQuerySchema, publishBodySchema, saveBodySchema, schedulesListQuerySchema, snapshotParamsSchema, snapshotsListQuerySchema, teamQuerySchema, unpublishBodySchema, sedeParamsSchema, weekParamsSchema } from "./horarios.schemas.js";
 
 /**
  * /api/horarios. Dependencies are injected so tests run with fakes:
@@ -36,28 +36,30 @@ export function createHorariosRouter({ authenticate, accessRepo, service }) {
   router.get(
     `${base}/shifts`,
     readers,
-    validate({ params: weekParamsSchema }),
+    validate({ params: weekParamsSchema, query: teamQuerySchema }),
     sede,
-    asyncHandler(async (req, res) => res.json(await service.get(req.access, req.params.sedeId, req.params.weekStart))),
+    asyncHandler(async (req, res) =>
+      res.json(await service.get(req.access, req.params.sedeId, req.params.weekStart, req.query.team)),
+    ),
   );
 
   router.put(
     `${base}/shifts`,
     writers,
-    validate({ params: weekParamsSchema, body: saveBodySchema }),
+    validate({ params: weekParamsSchema, query: teamQuerySchema, body: saveBodySchema }),
     sede,
     asyncHandler(async (req, res) =>
-      res.json(await service.save(req.access, req.user, req.params.sedeId, req.params.weekStart, req.body)),
+      res.json(await service.save(req.access, req.user, req.params.sedeId, req.params.weekStart, req.body, req.query.team)),
     ),
   );
 
   router.post(
     `${base}/publish`,
     writers,
-    validate({ params: weekParamsSchema, body: publishBodySchema }),
+    validate({ params: weekParamsSchema, query: teamQuerySchema, body: publishBodySchema }),
     sede,
     asyncHandler(async (req, res) =>
-      res.json(await service.publish(req.access, req.user, req.params.sedeId, req.params.weekStart, req.body)),
+      res.json(await service.publish(req.access, req.user, req.params.sedeId, req.params.weekStart, req.body, req.query.team)),
     ),
   );
 
@@ -65,10 +67,10 @@ export function createHorariosRouter({ authenticate, accessRepo, service }) {
   router.post(
     `${base}/unpublish`,
     writers,
-    validate({ params: weekParamsSchema, body: unpublishBodySchema }),
+    validate({ params: weekParamsSchema, query: teamQuerySchema, body: unpublishBodySchema }),
     sede,
     asyncHandler(async (req, res) => {
-      const { schedule, warnings } = await service.unpublish(req.access, req.user, req.params.sedeId, req.params.weekStart, req.body);
+      const { schedule, warnings } = await service.unpublish(req.access, req.user, req.params.sedeId, req.params.weekStart, req.body, req.query.team);
       res.json({ data: { schedule }, warnings });
     }),
   );
@@ -96,7 +98,7 @@ export function createHorariosRouter({ authenticate, accessRepo, service }) {
     validate({ params: weekParamsSchema, query: historyQuerySchema }),
     sede,
     asyncHandler(async (req, res) =>
-      res.json(await service.history(req.access, req.params.sedeId, req.params.weekStart, req.query.limit)),
+      res.json(await service.history(req.access, req.params.sedeId, req.params.weekStart, req.query.limit, req.query.team)),
     ),
   );
 
