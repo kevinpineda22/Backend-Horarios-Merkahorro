@@ -29,15 +29,28 @@ test("migration 015: snapshots keep the team and their week index includes it", 
   assert.ok(sql.includes("on schedule_publish_snapshots (sede_id, week_start, team_key, published_at desc)"));
 });
 
-test("migration 015: the pre-team RPC signatures are dropped so stale clients fail loudly", () => {
-  for (const sig of [
-    "shifts_save_week(text, date, int, text[], jsonb, uuid, jsonb)",
-    "shifts_save_week(text, date, int, text[], jsonb, uuid)",
-    "shifts_publish_week(text, date, int, uuid, jsonb)",
-    "shifts_publish_week(text, date, int, uuid)",
-    "shifts_unpublish_week(text, date, int, uuid)",
-  ]) {
-    assert.ok(sql.includes(`drop function if exists ${sig}`), sig);
+test("migration 015: the pre-team RPC signatures are NOT dropped, they become wrappers", () => {
+  assert.doesNotMatch(sql, /drop function[^;]*shifts_(save|publish|unpublish)_week/);
+});
+
+test("migration 015: old signatures are thin wrappers over the CAJEROS team (guard stays in the new functions)", () => {
+  const cases = [
+    ["shifts_save_week", "p_sede text, p_week date, p_expected_version int, p_cedulas text\\[\\], p_shifts jsonb, p_actor uuid\\)",
+      "return shifts_save_week(p_sede, p_week, 'cajeros'::text, p_expected_version, p_cedulas, p_shifts, p_actor);"],
+    ["shifts_save_week", "p_sede text, p_week date, p_expected_version int, p_cedulas text\\[\\], p_shifts jsonb, p_actor uuid, p_segments jsonb",
+      "return shifts_save_week(p_sede, p_week, 'cajeros'::text, p_expected_version, p_cedulas, p_shifts, p_actor, p_segments);"],
+    ["shifts_publish_week", "p_sede text, p_week date, p_expected_version int, p_actor uuid\\)",
+      "return shifts_publish_week(p_sede, p_week, 'cajeros'::text, p_expected_version, p_actor);"],
+    ["shifts_publish_week", "p_sede text, p_week date, p_expected_version int, p_actor uuid, p_segments jsonb",
+      "return shifts_publish_week(p_sede, p_week, 'cajeros'::text, p_expected_version, p_actor, p_segments);"],
+    ["shifts_unpublish_week", "p_sede text, p_week date, p_expected_version int, p_actor uuid\\)",
+      "return shifts_unpublish_week(p_sede, p_week, 'cajeros'::text, p_expected_version, p_actor);"],
+  ];
+  for (const [name, args, call] of cases) {
+    const body = fn(name, args);
+    assert.ok(body.includes(call), `${name}(${args}) delegates`);
+    assert.ok(body.includes("security invoker"), `${name} security invoker`);
+    assert.ok(body.length < 600, `${name} stays thin`);
   }
 });
 
@@ -84,8 +97,13 @@ test("migration 015: preserved behavior - history, overlap, paid-cut guard, vers
   assert.ok(unpub.includes("'despublicar'"));
 });
 
-test("migration 015: new functions are service_role only", () => {
+test("migration 015: new functions and old wrappers are service_role only", () => {
   for (const sig of [
+    "shifts_save_week(text, date, int, text[], jsonb, uuid)",
+    "shifts_save_week(text, date, int, text[], jsonb, uuid, jsonb)",
+    "shifts_publish_week(text, date, int, uuid)",
+    "shifts_publish_week(text, date, int, uuid, jsonb)",
+    "shifts_unpublish_week(text, date, int, uuid)",
     "shifts_save_week(text, date, text, int, text[], jsonb, uuid)",
     "shifts_save_week(text, date, text, int, text[], jsonb, uuid, jsonb)",
     "shifts_publish_week(text, date, text, int, uuid)",
@@ -102,6 +120,18 @@ test("migration 015: rollback refuses with extra teams; verify ends in ROLLBACK"
   const d = flat(read("migrations/rollback/015_schedule_teams.down.sql"));
   assert.ok(d.includes("rollback_refused"));
   assert.ok(d.includes("alter table sede_week_schedules drop column if exists team_key"));
+  for (const sig of [
+    "shifts_save_week(text, date, text, int, text[], jsonb, uuid, jsonb)",
+    "shifts_save_week(text, date, text, int, text[], jsonb, uuid)",
+    "shifts_publish_week(text, date, text, int, uuid, jsonb)",
+    "shifts_publish_week(text, date, text, int, uuid)",
+    "shifts_unpublish_week(text, date, text, int, uuid)",
+    "shifts_save_week(text, date, int, text[], jsonb, uuid, jsonb)",
+    "shifts_save_week(text, date, int, text[], jsonb, uuid)",
+    "shifts_publish_week(text, date, int, uuid, jsonb)",
+    "shifts_publish_week(text, date, int, uuid)",
+    "shifts_unpublish_week(text, date, int, uuid)",
+  ]) assert.ok(d.includes(`drop function if exists ${sig}`), sig);
   assert.ok(d.includes("alter table schedule_publish_snapshots drop column if exists team_key"));
   const v = flat(read("verification/015_schedule_teams_verify.sql")).trim();
   assert.match(v, /^begin;/);

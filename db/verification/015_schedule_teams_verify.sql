@@ -17,8 +17,10 @@ begin
   assert not exists (select 1 from sede_week_schedules where team_key is null), 'no null team';
   assert has_function_privilege('service_role', 'shifts_save_week(text, date, text, int, text[], jsonb, uuid)', 'execute'), 'service_role can save';
   assert not has_function_privilege('anon', 'shifts_publish_week(text, date, text, int, uuid)', 'execute'), 'anon cannot publish';
-  assert not exists (select 1 from pg_proc where proname = 'shifts_save_week' and pronargs = 6), 'old 6-arg save is gone';
-  assert not exists (select 1 from pg_proc where proname = 'shifts_unpublish_week' and pronargs = 4), 'old 4-arg unpublish is gone';
+  assert has_function_privilege('service_role', 'shifts_save_week(text, date, int, text[], jsonb, uuid)', 'execute'), 'service_role can call the old save wrapper';
+  assert not has_function_privilege('anon', 'shifts_unpublish_week(text, date, int, uuid)', 'execute'), 'anon cannot call the old unpublish wrapper';
+  assert exists (select 1 from pg_proc where proname = 'shifts_save_week' and pronargs = 6), 'old 6-arg save wrapper exists';
+  assert exists (select 1 from pg_proc where proname = 'shifts_unpublish_week' and pronargs = 4), 'old 4-arg unpublish wrapper exists';
 
   begin
     insert into sede_week_schedules (sede_id, week_start, team_key, created_by, updated_by)
@@ -58,6 +60,18 @@ begin
 
     perform shifts_unpublish_week(v_sede, v_week, 'CAJEROS', 2, v_actor);
     assert (select state from sede_week_schedules where id = v_caj) = 'BORRADOR', 'cashiers unpublished';
+
+    -- old signatures act on the CAJEROS team and keep the cross-team guard
+    v_res := shifts_save_week(v_sede, v_week, 3, array['99999991'],
+      '[{"cedula":"99999991","fecha":"2031-01-06","tipo":"TRABAJO","start_time":"08:00","end_time":"17:00","break_minutes":60}]'::jsonb, v_actor);
+    assert (v_res ->> 'id')::uuid = v_caj and v_res ->> 'teamKey' = 'CAJEROS', 'old save wrapper targets the cashier team';
+    begin
+      perform shifts_save_week(v_sede, v_week, 4, array['99999992'],
+        '[{"cedula":"99999992","fecha":"2031-01-06","tipo":"DESCANSO"}]'::jsonb, v_actor);
+      raise exception 'SHIFT_IN_OTHER_TEAM expected';
+    exception when others then
+      assert sqlerrm = 'SHIFT_IN_OTHER_TEAM', 'old save wrapper keeps the cross-team guard';
+    end;
   end if;
 
   raise notice 'ALL CHECKS PASSED';

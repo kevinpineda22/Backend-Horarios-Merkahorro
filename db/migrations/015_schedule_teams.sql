@@ -16,10 +16,13 @@
 --   * schedule_publish_snapshots.team_key (default 'CAJEROS'); its week index now includes the team.
 --   * RPCs take p_team (third argument) and look the week up by (sede, week, team). The advisory lock key is
 --     'shifts:week:<sede>:<week>:<team>'. Replaced: shifts_save_week (7 args + 8-arg segments wrapper),
---     shifts_publish_week (5 args + 6-arg segments wrapper), shifts_unpublish_week (5 args).
---   * DECISION: the previous signatures are DROPPED, not kept. Keeping them would let a stale backend keep writing into
---     the CAJEROS schedule without the cross-team guard; failing loudly (PGRST202 / 42883) is safer. So this migration
---     and the backend that calls p_team must be deployed together.
+--     shifts_publish_week (5 args + 6-arg segments wrapper), shifts_unpublish_week (5 args). The old signatures become
+--     wrappers of these (section 6).
+--   * DECISION: the previous signatures are KEPT as THIN WRAPPERS (section 6) that delegate to the new functions with
+--     p_team = 'CAJEROS'. They have the same security and grants as the originals. This makes "migration applied, old
+--     backend still live" work for writes (rollout order independence): the old backend only knows the cashier
+--     schedule. Because the wrappers call the new functions, the cross-team guard still applies to them. The migration
+--     must still run BEFORE the new backend (it selects team_key); the wrappers only cover the old-backend window.
 --   * Cross-team guard in shifts_save_week: a (cedula, fecha) that already exists in ANOTHER schedule of the same sede
 --     and week (any team) is rejected, so payroll cannot count the same person-day twice.
 --       SHIFT_IN_OTHER_TEAM -> 409 (DETAIL = jsonb array [{ cedula, fecha, otherTeamKey }])
@@ -64,16 +67,7 @@ create index if not exists schedule_publish_snapshots_week_idx
   on schedule_publish_snapshots (sede_id, week_start, team_key, published_at desc);
 
 -- ---------------------------------------------------------------------------
--- 2. Drop the pre-team signatures (see DECISION above). The segments helper and people counts are team-agnostic.
--- ---------------------------------------------------------------------------
-drop function if exists shifts_save_week(text, date, int, text[], jsonb, uuid, jsonb);
-drop function if exists shifts_save_week(text, date, int, text[], jsonb, uuid);
-drop function if exists shifts_publish_week(text, date, int, uuid, jsonb);
-drop function if exists shifts_publish_week(text, date, int, uuid);
-drop function if exists shifts_unpublish_week(text, date, int, uuid);
-
--- ---------------------------------------------------------------------------
--- 3. Save: replaces the shifts of the SENT cedulas of ONE team schedule, diffing on (cedula, fecha).
+-- 2. Save: replaces the shifts of the SENT cedulas of ONE team schedule, diffing on (cedula, fecha).
 -- ---------------------------------------------------------------------------
 create or replace function shifts_save_week(
   p_sede text, p_week date, p_team text, p_expected_version int, p_cedulas text[], p_shifts jsonb, p_actor uuid)
@@ -216,7 +210,7 @@ end
 $$;
 
 -- ---------------------------------------------------------------------------
--- 4. Publish: BORRADOR -> PUBLICADO for ONE team schedule. Blockers are evaluated by the API.
+-- 3. Publish: BORRADOR -> PUBLICADO for ONE team schedule. Blockers are evaluated by the API.
 -- ---------------------------------------------------------------------------
 create or replace function shifts_publish_week(
   p_sede text, p_week date, p_team text, p_expected_version int, p_actor uuid)
@@ -261,7 +255,7 @@ end
 $$;
 
 -- ---------------------------------------------------------------------------
--- 5. Unpublish: PUBLICADO -> BORRADOR for ONE team schedule (paid-cut guard as in 010).
+-- 4. Unpublish: PUBLICADO -> BORRADOR for ONE team schedule (paid-cut guard as in 010).
 -- ---------------------------------------------------------------------------
 create or replace function shifts_unpublish_week(
   p_sede text, p_week date, p_team text, p_expected_version int, p_actor uuid)
@@ -314,7 +308,7 @@ end
 $$;
 
 -- ---------------------------------------------------------------------------
--- 6. Segments wrappers (014): same atomic publish/save + segments, now per team.
+-- 5. Segments wrappers (014): same atomic publish/save + segments, now per team.
 -- ---------------------------------------------------------------------------
 create or replace function shifts_publish_week(
   p_sede text, p_week date, p_team text, p_expected_version int, p_actor uuid, p_segments jsonb)
@@ -350,7 +344,64 @@ begin
 end
 $$;
 
--- Executable by service_role only (Supabase grants EXECUTE on new functions to anon/authenticated).
+-- ---------------------------------------------------------------------------
+-- 6. Pre-team signatures kept as thin wrappers over the cashier team (see DECISION above). create or replace swaps the
+--    old bodies (which looked the week up without a team) for delegations to the new functions.
+-- ---------------------------------------------------------------------------
+create or replace function shifts_save_week(
+  p_sede text, p_week date, p_expected_version int, p_cedulas text[], p_shifts jsonb, p_actor uuid)
+returns jsonb
+language plpgsql
+security invoker
+as $$
+begin
+  return shifts_save_week(p_sede, p_week, 'CAJEROS'::text, p_expected_version, p_cedulas, p_shifts, p_actor);
+end
+$$;
+
+create or replace function shifts_save_week(
+  p_sede text, p_week date, p_expected_version int, p_cedulas text[], p_shifts jsonb, p_actor uuid, p_segments jsonb)
+returns jsonb
+language plpgsql
+security invoker
+as $$
+begin
+  return shifts_save_week(p_sede, p_week, 'CAJEROS'::text, p_expected_version, p_cedulas, p_shifts, p_actor, p_segments);
+end
+$$;
+
+create or replace function shifts_publish_week(p_sede text, p_week date, p_expected_version int, p_actor uuid)
+returns jsonb
+language plpgsql
+security invoker
+as $$
+begin
+  return shifts_publish_week(p_sede, p_week, 'CAJEROS'::text, p_expected_version, p_actor);
+end
+$$;
+
+create or replace function shifts_publish_week(
+  p_sede text, p_week date, p_expected_version int, p_actor uuid, p_segments jsonb)
+returns jsonb
+language plpgsql
+security invoker
+as $$
+begin
+  return shifts_publish_week(p_sede, p_week, 'CAJEROS'::text, p_expected_version, p_actor, p_segments);
+end
+$$;
+
+create or replace function shifts_unpublish_week(p_sede text, p_week date, p_expected_version int, p_actor uuid)
+returns jsonb
+language plpgsql
+security invoker
+as $$
+begin
+  return shifts_unpublish_week(p_sede, p_week, 'CAJEROS'::text, p_expected_version, p_actor);
+end
+$$;
+
+-- Executable by service_role only, new signatures and wrappers alike (Supabase grants EXECUTE on new functions to anon/authenticated).
 revoke all on function shifts_save_week(text, date, text, int, text[], jsonb, uuid) from public;
 revoke all on function shifts_save_week(text, date, text, int, text[], jsonb, uuid, jsonb) from public;
 revoke all on function shifts_publish_week(text, date, text, int, uuid) from public;
@@ -366,3 +417,18 @@ grant execute on function shifts_save_week(text, date, text, int, text[], jsonb,
 grant execute on function shifts_publish_week(text, date, text, int, uuid) to service_role;
 grant execute on function shifts_publish_week(text, date, text, int, uuid, jsonb) to service_role;
 grant execute on function shifts_unpublish_week(text, date, text, int, uuid) to service_role;
+revoke all on function shifts_save_week(text, date, int, text[], jsonb, uuid) from public;
+revoke all on function shifts_save_week(text, date, int, text[], jsonb, uuid) from anon, authenticated;
+grant execute on function shifts_save_week(text, date, int, text[], jsonb, uuid) to service_role;
+revoke all on function shifts_save_week(text, date, int, text[], jsonb, uuid, jsonb) from public;
+revoke all on function shifts_save_week(text, date, int, text[], jsonb, uuid, jsonb) from anon, authenticated;
+grant execute on function shifts_save_week(text, date, int, text[], jsonb, uuid, jsonb) to service_role;
+revoke all on function shifts_publish_week(text, date, int, uuid) from public;
+revoke all on function shifts_publish_week(text, date, int, uuid) from anon, authenticated;
+grant execute on function shifts_publish_week(text, date, int, uuid) to service_role;
+revoke all on function shifts_publish_week(text, date, int, uuid, jsonb) from public;
+revoke all on function shifts_publish_week(text, date, int, uuid, jsonb) from anon, authenticated;
+grant execute on function shifts_publish_week(text, date, int, uuid, jsonb) to service_role;
+revoke all on function shifts_unpublish_week(text, date, int, uuid) from public;
+revoke all on function shifts_unpublish_week(text, date, int, uuid) from anon, authenticated;
+grant execute on function shifts_unpublish_week(text, date, int, uuid) to service_role;
