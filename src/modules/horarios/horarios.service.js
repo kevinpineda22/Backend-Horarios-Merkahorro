@@ -6,6 +6,7 @@ import { publishBlockers, weekWarnings } from "./domain/weekRules.js";
 import { diffSnapshotRows } from "./domain/snapshotDiff.js";
 import { sanitizeSegmentsForShifts } from "./domain/segments.js";
 import { TEAM_CAJEROS } from "./domain/teams.js";
+import { TEAM_OVERTIME_HOURS, teamOvertimeMinutes } from "./domain/teamOvertime.js";
 
 const WRITER_ROLES = ["admin", "planner"];
 
@@ -66,9 +67,11 @@ const toSnapshotRow = (r) => {
  *   profilesRepo  findById (names of actors)
  *   snapshotsRepo create (migration 013): what was recommended, suggested and published, frozen on every publication.
  *                 Optional; a failure is logged and never blocks publishing.
+ *   overtimeRepo  listByWeek(sedeId, weekStart) -> [{ hours, status }]. Optional (null = no approved overtime): the cashier team may
+ *                 not be published above 10 h + the approved overtime of the week. A read error propagates (fail closed).
  * The routes already filter roles and sedes; every use case re-checks sede access (and writes the role) so the service is safe on its own.
  */
-export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null, logger = console }) {
+export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null, overtimeRepo = null, logger = console }) {
   async function assertSede(sedeId) {
     if (!(await repo.findSede(sedeId))) throw createHttpError(404, "Sede no encontrada.", "SEDE_NOT_FOUND");
   }
@@ -109,6 +112,32 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
     const { items, dropped } = sanitizeSegmentsForShifts(shifts, input);
     if (dropped) logger?.warn?.("[horarios] segments dropped: they do not fit the shifts", { ...context, dropped });
     return Array.isArray(input) ? items : null;
+  }
+
+  /**
+   * Cashier team overtime budget: 10 h + approved requests of the sede-week. The requests are read only when `minutes`
+   * exceeds the base 10 h, and a read error propagates (fail closed). Exactly at budget is allowed.
+   */
+  async function assertWithinOvertimeBudget(sedeId, weekStart, minutes) {
+    const baseMinutes = TEAM_OVERTIME_HOURS * 60;
+    if (minutes <= baseMinutes) return;
+    const requests = overtimeRepo ? await overtimeRepo.listByWeek(sedeId, weekStart) : [];
+    const approvedHours = requests.filter((r) => r.status === "APROBADA").reduce((sum, r) => sum + Number(r.hours || 0), 0);
+    const budgetMinutes = baseMinutes + Math.round(approvedHours * 60);
+    if (minutes <= budgetMinutes) return;
+    const err = createHttpError(
+      422,
+      "El equipo de cajeros supera las horas extra aprobadas para esta semana. Solicita las horas extra y espera la aprobación.",
+      "OVERTIME_NOT_APPROVED",
+    );
+    err.details = {
+      overtimeHours: minutes / 60,
+      budgetHours: budgetMinutes / 60,
+      approvedHours,
+      missingHours: (minutes - budgetMinutes) / 60,
+      pending: requests.some((r) => r.status === "PENDIENTE"),
+    };
+    throw err;
   }
 
   const permissionsFor = (access, sedeId) => {
@@ -297,6 +326,16 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
         }
       }
 
+      // Editing a published cashier week may not raise the team overtime above its budget. Already over: correcting down or
+      // leaving it equal stays possible. Drafts are never checked here (publishing is the gate).
+      // A stale version skips it: saveWeek answers VERSION_CONFLICT, which is what the leader must solve first.
+      if (current?.state === "PUBLICADO" && teamKey === TEAM_CAJEROS && current.version === expectedVersion) {
+        const storedRows = (await repo.listShifts(current.id)).map(toRuleRow);
+        const after = [...storedRows.filter((r) => !cedulas.includes(r.cedula)), ...normalized.map(payloadRuleRow(sedeId))];
+        const afterMinutes = teamOvertimeMinutes(after);
+        if (afterMinutes > teamOvertimeMinutes(storedRows)) await assertWithinOvertimeBudget(sedeId, weekStart, afterMinutes);
+      }
+
       // Only an already published week keeps a frozen split; the saved shifts are the truth the segments must fit.
       const frozen = current?.state === "PUBLICADO" ? freezableSegments(normalized, segments, { sedeId, weekStart }) : null;
       await repo.saveWeek({ sedeId, weekStart, teamKey, expectedVersion, cedulas, shifts: normalized, actor: user.id, segments: frozen });
@@ -345,6 +384,8 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
         err.details = { blockers };
         throw err;
       }
+
+      if (teamKey === TEAM_CAJEROS) await assertWithinOvertimeBudget(sedeId, weekStart, teamOvertimeMinutes(stored));
 
       // Atomic with the state change (migration 014). Absent segments = the old publish, which also works without 014.
       const frozen = freezableSegments(storedRows.map(toShiftDto), segments, { sedeId, weekStart });

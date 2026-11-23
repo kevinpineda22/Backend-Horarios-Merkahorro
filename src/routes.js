@@ -134,6 +134,7 @@ export default createRoutes({
         repo: createHorariosRepo(lazyClient),
         profilesRepo: createProfilesRepo(lazyClient),
         snapshotsRepo: createPublishSnapshotsRepo(lazyClient),
+        overtimeRepo: createOvertimeRepo(lazyClient),
       }),
     }),
     // Sales pool and Supabase are created on first use (see sugerido.module.js).
