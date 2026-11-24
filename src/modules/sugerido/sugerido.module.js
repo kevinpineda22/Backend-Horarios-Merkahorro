@@ -6,6 +6,8 @@ import { createSuggestionsRepo } from "./repositories/suggestions.supabase.js";
 import { createStaffPort } from "./repositories/staff.port.js";
 import { createAbsencesPort } from "./repositories/absences.port.js";
 import { createPublishSnapshotsRepo } from "../horarios/publishSnapshots.supabase.js";
+import { createPublishedShiftsPort } from "./repositories/publishedShifts.port.js";
+import { createHorariosRepo } from "../horarios/horarios.supabase.js";
 import { createNovedadesRepo } from "../novedades/novedades.supabase.js";
 
 /**
@@ -31,6 +33,7 @@ export function createSugeridoModule({ authenticate, accessRepo, client, emplead
     staffPort: createStaffPort(empleadosService, suggestionsRepo),
     absencesPort: createAbsencesPort(createNovedadesRepo(client)),
     snapshotsRepo: createPublishSnapshotsRepo(client),
+    shiftsPort: createPublishedShiftsPort(createHorariosRepo(client)),
     ...(now ? { now } : {}),
   });
   return createSugeridoRouter({ authenticate, accessRepo, service });

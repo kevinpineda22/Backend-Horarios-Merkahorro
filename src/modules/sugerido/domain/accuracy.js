@@ -9,6 +9,8 @@ import { wape } from "./backtest.js";
  *     needed     cashiers the REAL demand required (null is not allowed: the caller computes it for every row)
  *     system     cashiers the system suggested before planner overrides (null when the run is unavailable)
  *     published  cashiers shown to the leader at publication (the snapshot's `final`)
+ *     suggestedShifts / leaderShifts  cashiers present with the shifts the system built / the leader left published
+ *                (optional; null or missing = not measured)
  *     forecastDocs / actualDocs  documents forecast vs documents really issued
  *
  * Metrics of one staffing series (system or published) against `needed`:
@@ -28,6 +30,11 @@ const SLOTS_PER_HOUR = 60 / SLOT_MINUTES;
 const round = (n, digits) => (n === null ? null : Math.round(n * 10 ** digits) / 10 ** digits);
 const round2 = (n) => round(n, 2);
 const round4 = (n) => round(n, 4);
+
+const SHIFT_SERIES = ["suggestedShifts", "leaderShifts"];
+const isMeasured = (r, key) => r[key] !== null && r[key] !== undefined;
+// { suggested, leader }: metrics of the shifts themselves, null each when that version is not known.
+const shiftsMetrics = (rows) => ({ suggested: seriesMetrics(rows, "suggestedShifts"), leader: seriesMetrics(rows, "leaderShifts") });
 
 const isOpen = (r) => r.forecastDocs > 0 || r.actualDocs > 0;
 
@@ -84,9 +91,10 @@ export function hourlySeries(rows) {
   const byHour = new Map();
   for (const r of rows) {
     const hour = Number(r.franja.slice(0, 2));
-    const h = byHour.get(hour) ?? { needed: 0, system: 0, published: 0, hasSystem: false };
+    const h = byHour.get(hour) ?? { needed: 0, system: 0, published: 0, hasSystem: false, suggestedShifts: null, leaderShifts: null };
     h.needed += r.needed;
     h.published += r.published ?? 0;
+    for (const key of SHIFT_SERIES) if (isMeasured(r, key)) h[key] = (h[key] ?? 0) + r[key];
     if (r.system !== null && r.system !== undefined) {
       h.system += r.system;
       h.hasSystem = true;
@@ -102,6 +110,7 @@ export function hourlySeries(rows) {
         needed: round2(h.needed / SLOTS_PER_HOUR),
         system: h.hasSystem ? round2(h.system / SLOTS_PER_HOUR) : null,
         published: round2(h.published / SLOTS_PER_HOUR),
+        ...Object.fromEntries(SHIFT_SERIES.filter((key) => h[key] !== null).map((key) => [key, round2(h[key] / SLOTS_PER_HOUR)])),
       };
     });
 }
@@ -120,11 +129,12 @@ export function computeAccuracy(rows) {
     byDay.get(r.fecha).push(r);
   }
   return {
-    summary: { system: seriesMetrics(sorted, "system"), published: seriesMetrics(sorted, "published"), docs: docsMetrics(sorted) },
+    summary: { system: seriesMetrics(sorted, "system"), published: seriesMetrics(sorted, "published"), shifts: shiftsMetrics(sorted), docs: docsMetrics(sorted) },
     days: [...byDay.entries()].map(([fecha, dayRows]) => ({
       fecha,
       system: seriesMetrics(dayRows, "system"),
       published: seriesMetrics(dayRows, "published"),
+      shifts: shiftsMetrics(dayRows),
       docs: docsMetrics(dayRows),
       hours: hourlySeries(dayRows),
     })),

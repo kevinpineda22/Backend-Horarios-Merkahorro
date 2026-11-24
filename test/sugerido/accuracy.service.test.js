@@ -14,7 +14,7 @@ const day = (docs) => Object.fromEntries(SLOTS.map((f) => [f, { docs, venta: 0 }
 const weekSales = (docs = 20) =>
   Object.fromEntries(["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08"].map((d) => [d, day(docs)]));
 
-function setup({ snapshot, run = "default", sales = { dataAsOf: "2026-11-08", slots: weekSales(), daily: {}, productivityRows: [] }, past = null, after = null, snapshots = null, minCashiers = null, now = CLOSED_NOW } = {}) {
+function setup({ snapshot, run = "default", sales = { dataAsOf: "2026-11-08", slots: weekSales(), daily: {}, productivityRows: [] }, past = null, after = null, snapshots = null, minCashiers = null, shiftsPort = null, now = CLOSED_NOW } = {}) {
   const calls = { sales: [] };
   const defaultRun = {
     id: "r1", version: 4, settings: { ...SETTINGS, ...(minCashiers === null ? {} : { minCashiers }) }, inputs: { productivity: PRODUCTIVITY },
@@ -32,6 +32,7 @@ function setup({ snapshot, run = "default", sales = { dataAsOf: "2026-11-08", sl
     settingsRepo: { async getSettings() { return { ...SETTINGS }; } },
     salesRepo: { async loadSlotHistory(args) { calls.sales.push(args); if (args.desde === "2026-11-09") return after ?? { dataAsOf: null, slots: {}, daily: {}, productivityRows: [] }; return args.hasta === "2026-10-31" && past ? past : sales; } },
     snapshotsRepo: { async findLatestByWeek(args) { calls.snap = args; return snapshots ? [...snapshots].sort((a, b) => (a.publishedAt < b.publishedAt ? 1 : -1))[0] : snap; } },
+    shiftsPort,
     now: () => now,
   });
   return { service, calls };
@@ -187,4 +188,36 @@ test("registers 0 or null do not cap the needed cashiers", async () => {
     const r = await setup({ snapshot }).service.getAccuracy("s1", WEEK);
     assert.equal(r.days[1].hours[0].needed, 3, `registers ${registers}`);
   }
+});
+
+const turn = (cedula) => ({ cedula, fecha: WEEK, tipo: "TRABAJO", startTime: "08:00", endTime: "09:00", breakMinutes: 0, lunchStart: null });
+
+test("grades the suggested shifts and the ones the leader left published, plus the real sales", async () => {
+  const snapshot = {
+    id: "sn1", publishedAt: null,
+    recommendation: { runVersion: 4, dataAsOf: "2026-10-31", registers: 10, slots: SLOTS.map((franja) => ({ fecha: WEEK, franja, final: 4 })) },
+    suggested: { cedulas: ["1", "2", "3"], shifts: ["1", "2", "3"].map(turn) },
+    published: [turn("1"), turn("2"), turn("99")],
+  };
+  const frozen = await setup({ snapshot }).service.getAccuracy("s1", WEEK);
+  assert.equal(frozen.leaderSource, "snapshot");
+  assert.equal(frozen.days[0].shifts.suggested.exactRate, 1); // needed 3, 3 people
+  assert.equal(frozen.days[0].shifts.leader.underHours, 1); // 2 of the team: the person outside it is left out
+  assert.deepEqual(frozen.days[0].hours, [{ hour: 8, needed: 3, system: 2, published: 4, suggestedShifts: 3, leaderShifts: 2 }]);
+  assert.deepEqual(frozen.summary.sales, { venta: 0, docs: 20 * 4 * 7 });
+
+  const shiftsPort = { async listPublishedCashierShifts() { return [turn("1")]; } };
+  const saved = await setup({ snapshot, shiftsPort }).service.getAccuracy("s1", WEEK);
+  assert.equal(saved.leaderSource, "saved");
+  assert.equal(saved.days[0].shifts.leader.underHours, 2);
+});
+
+test("shift coverage is capped by the registers; without shifts nothing is graded", async () => {
+  const r = await setup().service.getAccuracy("s1", WEEK);
+  assert.deepEqual(r.summary.shifts, { suggested: null, leader: null });
+  assert.equal(r.leaderSource, null);
+  const many = ["1", "2", "3", "4", "5"].map(turn);
+  const snapshot = { id: "x", publishedAt: null, recommendation: { runVersion: 4, dataAsOf: "2026-10-31", registers: 2, slots: [{ fecha: WEEK, franja: "08:00", final: 2 }] }, suggested: { shifts: many }, published: many };
+  const capped = await setup({ snapshot }).service.getAccuracy("s1", WEEK);
+  assert.equal(capped.days[0].hours[0].suggestedShifts, 2);
 });

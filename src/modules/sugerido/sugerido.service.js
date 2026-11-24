@@ -59,7 +59,7 @@ const toRegisters = (derived, override) => ({ derived, override: override ?? nul
  * testable offline. Authorization (role / sede scope) is enforced by the routes; the service only
  * resolves the sede and applies business rules.
  */
-export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo, staffPort, absencesPort, snapshotsRepo = null, now = () => new Date() }) {
+export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo, staffPort, absencesPort, snapshotsRepo = null, shiftsPort = null, now = () => new Date() }) {
   // bodega -> { count, at }. Only the read paths use it; a run always asks the database.
   const registersCache = new Map();
   const registersFailedAt = new Map(); // bodega -> ms of the last failed load (negative cache)
@@ -167,7 +167,7 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
   }
 
   // Read-only accuracy of a published week (needs the publish snapshots repo; without it the use case throws).
-  const accuracy = createAccuracyService({ suggestionsRepo, settingsRepo, salesRepo, snapshotsRepo, now });
+  const accuracy = createAccuracyService({ suggestionsRepo, settingsRepo, salesRepo, snapshotsRepo, shiftsPort, now });
 
   return {
     /** Accuracy of a closed, published week (admin-only at the route). See accuracy.service.js for the contract. */
