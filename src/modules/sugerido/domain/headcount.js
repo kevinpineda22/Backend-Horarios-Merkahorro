@@ -11,9 +11,22 @@ function assertFinite(name, value) {
   }
 }
 
+// After closing time only stray receipts are left. The trailing slots under this share of the day's median slot are not
+// opening hours: nobody is scheduled for them (a single late receipt would otherwise keep a cashier until 22:30).
+export const STRAY_TAIL_SHARE = 0.1;
+
+/** Index of the last slot with real activity, -1 without sales. Only the END of the day is trimmed, never a quiet slot inside it. */
+export function lastBusyIndex(docsAt) {
+  const open = docsAt.filter((docs) => docs > 0).sort((a, b) => a - b);
+  if (open.length === 0) return -1;
+  const floor = open[Math.floor(open.length / 2)] * STRAY_TAIL_SHARE;
+  return docsAt.findLastIndex((docs) => docs > 0 && docs >= floor);
+}
+
 /**
  * Required cashiers per forecast slot.
- * slots: [{ franja, docs }] (docs per 15-min slot). A slot with docs <= 0 is closed.
+ * slots: [{ franja, docs }] (docs per 15-min slot). A slot with docs <= 0, or in the stray
+ * tail after closing (lastBusyIndex), is closed: 0 cashiers. The tail still smooths the slot before it.
  * required = max(minCashiers, ceil(smoothedDocsPerHour / (productivity * utilization)))
  * Smoothing is a centered moving average over the slot and its neighbours, using only
  * neighbours that exist within the day and are open (docs > 0): the window shrinks at the
@@ -32,6 +45,7 @@ export function computeHeadcount({ slots, productivity, settings }) {
   const docsAt = new Array(SLOTS_PER_DAY).fill(0);
   for (const s of slots) docsAt[slotIndex(s.franja)] = s.docs;
 
+  const lastBusy = lastBusyIndex(docsAt);
   const hasProductivity = productivity !== null && productivity > 0;
   return slots.map((s) => {
     const i = slotIndex(s.franja);
@@ -42,7 +56,7 @@ export function computeHeadcount({ slots, productivity, settings }) {
     const base = { franja: s.franja, forecastDocs: s.docs, smoothedDocsPerHour };
 
     if (!hasProductivity) return { ...base, required: null, status: "unknown" };
-    if (s.docs <= 0) return { ...base, required: 0, status: "closed" };
+    if (s.docs <= 0 || i > lastBusy) return { ...base, required: 0, status: "closed" };
     const needed = Math.ceil(smoothedDocsPerHour / (productivity * utilization) - EPSILON);
     return { ...base, required: Math.max(minCashiers, needed), status: "ok" };
   });

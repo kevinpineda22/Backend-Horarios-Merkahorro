@@ -91,3 +91,23 @@ test("validates numbers at the boundary", () => {
   assert.throws(() => computeHeadcount({ slots, productivity: NaN, settings }), /productivity/);
   assert.throws(() => computeHeadcount({ slots, productivity: -1, settings }), /productivity/);
 });
+
+test("stray receipts after closing need nobody, quiet slots inside the day still do", () => {
+  const slots = [
+    { franja: "19:00", docs: 20 }, { franja: "19:15", docs: 1 }, { franja: "19:30", docs: 22 }, { franja: "19:45", docs: 21 },
+    { franja: "20:00", docs: 10 }, { franja: "20:15", docs: 3.8 }, { franja: "20:30", docs: 1.5 }, { franja: "20:45", docs: 0.9 },
+    { franja: "21:00", docs: 0.4 }, { franja: "22:00", docs: 0.125 },
+  ];
+  const busy = Array.from({ length: 40 }, (_, i) => ({ franja: `${String(9 + Math.floor(i / 4)).padStart(2, "0")}:${String((i % 4) * 15).padStart(2, "0")}`, docs: 20 }));
+  const out = computeHeadcount({ slots: [...busy, ...slots], productivity: 20, settings: { utilization: 0.85, minCashiers: 1 } });
+  const at = (franja) => out.findLast((s) => s.franja === franja);
+  assert.ok(at("19:15").required >= 1);
+  assert.ok(at("20:15").required >= 1);
+  for (const franja of ["20:30", "20:45", "21:00", "22:00"]) assert.deepEqual([at(franja).required, at(franja).status], [0, "closed"]);
+});
+
+test("a uniformly quiet day keeps every slot", () => {
+  const slots = ["18:00", "18:15", "18:30"].map((franja) => ({ franja, docs: 0.125 }));
+  const out = computeHeadcount({ slots, productivity: 20, settings: { utilization: 0.85, minCashiers: 1 } });
+  assert.deepEqual(out.map((s) => s.required), [1, 1, 1]);
+});
