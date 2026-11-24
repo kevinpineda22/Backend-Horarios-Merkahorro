@@ -43,6 +43,12 @@ export function coverageByKey(rows) {
   return out;
 }
 
+/**
+ * Cashiers at the registers given the people present: cajeras always are, a cajero-surtidor only while a register is short
+ * (otherwise she stocks), as the scheduler splits them.
+ */
+export const atRegister = (cajeras, stockers, need) => cajeras + Math.min(stockers, Math.max(0, need - cajeras));
+
 /** Rows of the given people only; every row when there is no list. */
 export const onlyPeople = (rows, cedulas) => {
   if (!Array.isArray(cedulas)) return rows;

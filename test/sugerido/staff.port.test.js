@@ -117,3 +117,11 @@ test("createStaffPort requires both collaborators", () => {
   assert.throws(() => createStaffPort(undefined, { getSede() {} }));
   assert.throws(() => createStaffPort({ list() {} }, undefined));
 });
+
+test("listStockerCedulas: every active cajero-surtidor of any sede; a broken directory is an error, never an empty set", async () => {
+  const { port } = setup({
+    rows: [row("11111", "CAJERO - SURTIDOR"), row("22222", "cajero-surtidor", "s2"), row("33333", "CAJERO (A)"), row("44444", "SURTIDOR"), row("", "CAJERO - SURTIDOR"), row("55555", "CAJERO - SURTIDOR", "s1", { activo: false })],
+  });
+  assert.deepEqual([...(await port.listStockerCedulas())].sort(), ["11111", "22222"]);
+  await assert.rejects(setup({ result: { data: null } }).port.listStockerCedulas(), { code: "STAFF_SOURCE_UNAVAILABLE" });
+});

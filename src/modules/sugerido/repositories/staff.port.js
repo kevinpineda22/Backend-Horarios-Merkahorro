@@ -15,6 +15,8 @@ export const CASHIER_CARGOS = Object.freeze(["cajera", "cajero", "cajero (a)", "
 /** Fold accents/case, collapse whitespace and normalize the spacing around hyphens. */
 const normalizeCargo = (value) => fold(value).replace(/\s*-\s*/g, " - ");
 
+const STOCKER_CARGO = "cajero - surtidor";
+
 /** True for the cashier cargos of the allowlist above. */
 export const isCashierCargo = (cargo) => CASHIER_CARGOS.includes(normalizeCargo(cargo));
 
@@ -34,6 +36,13 @@ export function createStaffPort(empleadosService, sedeRepo) {
   if (typeof sedeRepo?.getSede !== "function") throw new Error("sedeRepo with getSede() is required");
 
   return {
+    /** Cedulas of every active cajero-surtidor, of any sede (somebody may have moved since the week being read). */
+    async listStockerCedulas() {
+      const result = await empleadosService.list(SERVICE_ACCESS, {});
+      if (!Array.isArray(result?.data)) throw unavailable();
+      return new Set(result.data.filter((row) => row?.activo === true && normalizeCargo(row.cargo) === STOCKER_CARGO).map((row) => normalizeCedula(row.cedula)).filter(Boolean));
+    },
+
     /** Active cashiers of the sede as [{ cedula }] (normalized, unique). */
     async getCashierPool(sedeId) {
       if (typeof sedeId !== "string" || sedeId.trim() === "") throw notMapped();

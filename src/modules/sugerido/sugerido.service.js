@@ -167,7 +167,7 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
   }
 
   // Read-only accuracy of a published week (needs the publish snapshots repo; without it the use case throws).
-  const accuracy = createAccuracyService({ suggestionsRepo, settingsRepo, salesRepo, snapshotsRepo, shiftsPort, now });
+  const accuracy = createAccuracyService({ suggestionsRepo, settingsRepo, salesRepo, snapshotsRepo, shiftsPort, staffPort, now });
 
   return {
     /** Accuracy of a closed, published week (admin-only at the route). See accuracy.service.js for the contract. */

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { coverageByKey, onlyPeople } from "../../src/modules/sugerido/domain/shiftCoverage.js";
+import { atRegister, coverageByKey, onlyPeople } from "../../src/modules/sugerido/domain/shiftCoverage.js";
 import { createPublishedShiftsPort } from "../../src/modules/sugerido/repositories/publishedShifts.port.js";
 
 const D = "2026-11-09";
@@ -45,4 +45,11 @@ test("the port reads only a published cashier schedule", async () => {
   assert.deepEqual(await createPublishedShiftsPort(repo("PUBLICADO")).listPublishedCashierShifts("s1", D), [{ id: 7 }]);
   assert.equal(await createPublishedShiftsPort(repo("BORRADOR")).listPublishedCashierShifts("s1", D), null);
   assert.equal(await createPublishedShiftsPort(repo(null)).listPublishedCashierShifts("s1", D), null);
+});
+
+test("atRegister: stockers fill the missing registers and no more", () => {
+  assert.equal(atRegister(2, 3, 4), 4);
+  assert.equal(atRegister(2, 1, 4), 3);
+  assert.equal(atRegister(5, 3, 4), 5);
+  assert.equal(atRegister(0, 2, 0), 0);
 });

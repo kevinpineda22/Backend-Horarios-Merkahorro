@@ -1,9 +1,10 @@
+import { normalizeCedula } from "../../shared/cedula.js";
 import { createHttpError } from "../../shared/http/HttpError.js";
 import { addDays, bogotaToday, weekDates } from "./domain/dates.js";
 import { computeHeadcount } from "./domain/headcount.js";
 import { computeProductivity, PRODUCTIVITY_WINDOW_DAYS } from "./domain/productivity.js";
 import { computeAccuracy } from "./domain/accuracy.js";
-import { coverageByKey, onlyPeople } from "./domain/shiftCoverage.js";
+import { atRegister, coverageByKey, onlyPeople } from "./domain/shiftCoverage.js";
 
 /**
  * Accuracy ("asertividad") of a published week: what the week really needed vs what the system suggested and what
@@ -22,20 +23,21 @@ import { coverageByKey, onlyPeople } from "./domain/shiftCoverage.js";
  *   productivitySource,            // "run" (frozen in the run) | "reconstructed" (rebuilt from sales, run missing) | null
  *   snapshot: { id, publishedAt, runVersion } | null,
  *   leaderSource,                  // "saved" (shifts of the published schedule, later edits included) | "snapshot" | null
+ *   stockersKnown,                 // false when the directory was not available: every person counts at the register
  *   // see domain/accuracy.js for the metric fields
  *   summary: { system, published, shifts: { suggested, leader }, docs, sales: { venta, docs } } | null,
  *   days: [{ fecha, system, published, docs, hours: [{ hour, needed, system, published }] }]
  * }
  * "shifts" grades real shifts (lunch excluded, capped by the registers) against the need: the ones the system built and
- * the ones the leader finally left published.
+ * the ones the leader finally left published. A cajero-surtidor counts at the register only while one is short.
  * "needed" = real documents per franja -> computeHeadcount with the productivity and settings frozen in the run,
  * capped by the registers of the snapshot. "system" = run `required` (the pure forecast-driven demand, before pool
  * availability and planner overrides) capped the same way; a slot whose `required` is null is left out of the system
  * metrics, never counted as 0. "published" = the snapshot's `final`. Error 409 PRODUCTIVITY_UNAVAILABLE when no productivity can be determined.
  */
-export function createAccuracyService({ suggestionsRepo, settingsRepo, salesRepo, snapshotsRepo, shiftsPort = null, now = () => new Date() }) {
+export function createAccuracyService({ suggestionsRepo, settingsRepo, salesRepo, snapshotsRepo, shiftsPort = null, staffPort = null, logger = console, now = () => new Date() }) {
   const base = (weekStart, over) => ({
-    status: "OK", weekStart, weekEnd: addDays(weekStart, 6), dataAsOf: null, systemAvailable: false, productivitySource: null, leaderSource: null,
+    status: "OK", weekStart, weekEnd: addDays(weekStart, 6), dataAsOf: null, systemAvailable: false, productivitySource: null, leaderSource: null, stockersKnown: false,
     snapshot: null, summary: null, days: [], ...over,
   });
 
@@ -63,6 +65,26 @@ export function createAccuracyService({ suggestionsRepo, settingsRepo, salesRepo
     if (saved?.length) return { rows: saved, source: "saved" };
     const frozen = onlyPeople(snap.published ?? [], snap.suggested?.cedulas);
     return frozen.length ? { rows: frozen, source: "snapshot" } : { rows: null, source: null };
+  }
+
+  /** Cedulas of the cajero-surtidor, null when the directory cannot answer (an outage must not hide the whole screen). */
+  async function stockers() {
+    if (!staffPort?.listStockerCedulas) return null;
+    try {
+      return await staffPort.listStockerCedulas();
+    } catch (err) {
+      logger?.warn?.("[accuracy] stockers unknown", { message: err?.message });
+      return null;
+    }
+  }
+
+  /** (key, need) -> cashiers at the registers with these shifts; null without rows. */
+  function registerCoverage(rows, stockerCedulas) {
+    if (!rows?.length) return null;
+    const isStocker = (r) => stockerCedulas?.has(normalizeCedula(r.cedula)) ?? false;
+    const cajeras = coverageByKey(rows.filter((r) => !isStocker(r)));
+    const flexible = coverageByKey(rows.filter(isStocker));
+    return { keys: [...new Set([...cajeras.keys(), ...flexible.keys()])], at: (key, need) => atRegister(cajeras.get(key) ?? 0, flexible.get(key) ?? 0, need) };
   }
 
   return {
@@ -121,13 +143,14 @@ export function createAccuracyService({ suggestionsRepo, settingsRepo, salesRepo
       const forecast = new Map((run?.slots ?? []).map((s) => [`${s.fecha}|${s.franja}`, s.forecastDocs]));
 
       const leader = await leaderRows(sedeId, weekStart, snap);
-      const leaderAt = leader.rows ? coverageByKey(leader.rows) : null;
+      const stockerCedulas = await stockers();
+      const leaderAt = registerCoverage(leader.rows, stockerCedulas);
       const suggestedRows = snap.suggested?.shifts;
-      const suggestedAt = Array.isArray(suggestedRows) && suggestedRows.length ? coverageByKey(suggestedRows) : null;
-      const present = (map, key) => (map ? cap(map.get(key) ?? 0) : null);
+      const suggestedAt = registerCoverage(Array.isArray(suggestedRows) ? suggestedRows : null, stockerCedulas);
+      const present = (coverage, key) => (coverage ? cap(coverage.at(key, needed.get(key) ?? 0)) : null);
 
       const week = new Set(weekDates(weekStart));
-      const keys = new Set([...needed.keys(), ...published.keys(), ...system.keys(), ...forecast.keys(), ...(suggestedAt?.keys() ?? []), ...(leaderAt?.keys() ?? [])]);
+      const keys = new Set([...needed.keys(), ...published.keys(), ...system.keys(), ...forecast.keys(), ...(suggestedAt?.keys ?? []), ...(leaderAt?.keys ?? [])]);
       const rows = [];
       for (const key of keys) {
         const [fecha, franja] = key.split("|");
@@ -150,7 +173,7 @@ export function createAccuracyService({ suggestionsRepo, settingsRepo, salesRepo
       const sales = { venta: Math.round(sold.reduce((sum, s) => sum + (s.venta ?? 0), 0)), docs: sold.reduce((sum, s) => sum + (s.docs ?? 0), 0) };
       const summary = { ...accuracy.summary, sales, ...(run ? {} : { docs: null }) };
       const days = run ? accuracy.days : accuracy.days.map((d) => ({ ...d, docs: null }));
-      return base(weekStart, { dataAsOf: horizon, systemAvailable: Boolean(run), productivitySource, leaderSource: leader.source, snapshot, summary, days });
+      return base(weekStart, { dataAsOf: horizon, systemAvailable: Boolean(run), productivitySource, leaderSource: leader.source, stockersKnown: stockerCedulas !== null, snapshot, summary, days });
     },
   };
 }
