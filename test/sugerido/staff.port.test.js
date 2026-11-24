@@ -48,8 +48,8 @@ test("returns active cashiers of the sede with normalized, unique cedulas", asyn
 });
 
 test("cargo matching is an exact allowlist (case, accent and spacing insensitive)", async () => {
-  assert.deepEqual([...CASHIER_CARGOS], ["cajera", "cajero", "cajero - surtidor"]);
-  const included = ["CAJERA", "Cajero", "Cajéra", "CAJERO - SURTIDOR", "cajero-surtidor", "CAJERO  -  SURTIDOR", "  cajero -surtidor "];
+  assert.deepEqual([...CASHIER_CARGOS], ["cajera", "cajero", "cajero (a)", "cajero - surtidor"]);
+  const included = ["CAJERA", "Cajero", "CAJERO (A)", "cajero  (a) ", "Cajéra", "CAJERO - SURTIDOR", "cajero-surtidor", "CAJERO  -  SURTIDOR", "  cajero -surtidor "];
   const inc = setup({ rows: included.map((c, i) => row(String(10000 + i), c)) });
   assert.equal((await inc.port.getCashierPool("s1")).length, included.length);
   const excluded = ["CAJERO PAC", "JEFE DE CAJEROS", "AUXILIAR DE CAJA", "CAJERA PRINCIPAL", "Cajera de apoyo", "CAJERO(A)", "CAJERO - ", "CAJERO - SURTIDOR 2", "", null, undefined, "Cajas"];

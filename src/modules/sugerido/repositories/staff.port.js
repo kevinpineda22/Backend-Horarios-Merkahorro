@@ -10,7 +10,7 @@ const SERVICE_ACCESS = Object.freeze({ role: "admin", sedeIds: null });
 // Cashier cargo rule: EXACT allowlist of normalized cargos (decision: cashier cargo allowlist).
 // Not a substring match: "CAJERO PAC", "Jefe de cajeros", "Cajera principal" are excluded.
 // A new cargo must be added here deliberately.
-export const CASHIER_CARGOS = Object.freeze(["cajera", "cajero", "cajero - surtidor"]);
+export const CASHIER_CARGOS = Object.freeze(["cajera", "cajero", "cajero (a)", "cajero - surtidor"]);
 
 /** Fold accents/case, collapse whitespace and normalize the spacing around hyphens. */
 const normalizeCargo = (value) => fold(value).replace(/\s*-\s*/g, " - ");
