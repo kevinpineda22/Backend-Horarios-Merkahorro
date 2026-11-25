@@ -38,7 +38,7 @@ export function createStaffPort(empleadosService, sedeRepo) {
   return {
     /** Cedulas of every active cajero-surtidor, of any sede (somebody may have moved since the week being read). */
     async listStockerCedulas() {
-      const result = await empleadosService.list(SERVICE_ACCESS, {});
+      const result = await empleadosService.list(SERVICE_ACCESS, { precontractuales: true });
       if (!Array.isArray(result?.data)) throw unavailable();
       return new Set(result.data.filter((row) => row?.activo === true && normalizeCargo(row.cargo) === STOCKER_CARGO).map((row) => normalizeCedula(row.cedula)).filter(Boolean));
     },
@@ -48,7 +48,7 @@ export function createStaffPort(empleadosService, sedeRepo) {
       if (typeof sedeId !== "string" || sedeId.trim() === "") throw notMapped();
       await sedeRepo.getSede(sedeId);
 
-      const result = await empleadosService.list(SERVICE_ACCESS, { sede: sedeId });
+      const result = await empleadosService.list(SERVICE_ACCESS, { sede: sedeId, precontractuales: true });
       if (!Array.isArray(result?.data)) throw unavailable();
 
       const cedulas = new Set();
@@ -58,6 +58,8 @@ export function createStaffPort(empleadosService, sedeRepo) {
         const included = row.incluidoEnCaja === true;
         // "Solo surtidor": SIESA says cashier, the leader says she does not work the register (yet).
         if (!included && row.excluidoDeCaja === true) continue;
+        // No contract yet: only whoever the leader marked "Programar en caja" counts.
+        if (!included && row.precontractual === true) continue;
         if (!included && !CASHIER_CARGOS.includes(normalizeCargo(row.cargo))) continue;
         const cedula = normalizeCedula(row.cedula);
         if (cedula) cedulas.add(cedula);

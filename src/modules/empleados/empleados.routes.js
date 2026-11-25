@@ -7,7 +7,7 @@ import { isValidCedula } from "../../shared/cedula.js";
 
 const filter = (max) => z.string().trim().min(1, "Filtro vacío").max(max, "Filtro demasiado largo").optional();
 
-export const listQuerySchema = z.object({ sede: filter(100), cargo: filter(100), q: filter(100) });
+export const listQuerySchema = z.object({ sede: filter(100), cargo: filter(100), q: filter(100), precontractuales: z.literal("1").optional().transform((v) => v === "1") });
 
 export const exclusionParamsSchema = z.object({
   cedula: z.string().trim().refine(isValidCedula, "Cédula inválida"),

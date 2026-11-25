@@ -64,7 +64,7 @@ test("reads with an internal all-sedes access and never forwards user credential
   assert.equal(calls[0].access.role, "admin");
   assert.equal(calls[0].access.sedeIds, null);
   assert.ok(Object.isFrozen(calls[0].access));
-  assert.deepEqual(calls[0].filters, { sede: "s1" });
+  assert.deepEqual(calls[0].filters, { sede: "s1", precontractuales: true });
 });
 
 test("a genuinely empty pool is valid", async () => {
@@ -124,4 +124,16 @@ test("listStockerCedulas: every active cajero-surtidor of any sede; a broken dir
   });
   assert.deepEqual([...(await port.listStockerCedulas())].sort(), ["11111", "22222"]);
   await assert.rejects(setup({ result: { data: null } }).port.listStockerCedulas(), { code: "STAFF_SOURCE_UNAVAILABLE" });
+});
+
+test("pre-contractual people count only when a leader marked them, whatever their cargo says", async () => {
+  const { port } = setup({
+    rows: [
+      row("11111", "CAJERO (A)", "s1", { precontractual: true }),
+      row("22222", "CAJERO (A)", "s1", { precontractual: true, incluidoEnCaja: true }),
+      row("33333", "AUXILIAR DE FRUVER", "s1", { precontractual: true, incluidoEnCaja: true }),
+      row("44444", "CAJERO (A)"),
+    ],
+  });
+  assert.deepEqual((await port.getCashierPool("s1")).map((c) => c.cedula), ["22222", "33333", "44444"]);
 });

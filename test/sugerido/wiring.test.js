@@ -95,7 +95,7 @@ test("the staff port reads the SAME empleados service instance it was given (sha
   await withModule({ getPool: () => emptyPool, empleadosService: staff }, async (call) => {
     assert.equal((await call("POST", runPath)).status, 200);
     assert.equal(staff.calls.length, 1);
-    assert.deepEqual(staff.calls[0], [{ role: "admin", sedeIds: null }, { sede: "s1" }]);
+    assert.deepEqual(staff.calls[0], [{ role: "admin", sedeIds: null }, { sede: "s1", precontractuales: true }]);
   });
 });
 

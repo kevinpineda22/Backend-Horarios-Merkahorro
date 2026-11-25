@@ -1,7 +1,10 @@
 import { HttpError } from "../../shared/http/HttpError.js";
 
-const PATH = "/api/trazabilidad/service/empleados-activos";
+const PATH_ACTIVOS = "/api/trazabilidad/service/empleados-activos";
+const PATH_PRECONTRACTUALES = "/api/trazabilidad/service/empleados-precontractuales";
 const DEFAULT_TIMEOUT_MS = 8000;
+// Optional source: it must not keep the whole directory waiting.
+const PRECONTRACTUALES_TIMEOUT_MS = 4000;
 
 const unavailable = () =>
   new HttpError(503, "Employee directory is temporarily unavailable", "STAFF_SOURCE_UNAVAILABLE");
@@ -21,13 +24,13 @@ export function createTrazabilidadClient({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   logger = console,
 } = {}) {
-  async function fetchEmpleadosActivos() {
+  async function fetchRows(path, waitMs = timeoutMs) {
     if (!baseUrl || !serviceKey || typeof fetchImpl !== "function") throw unavailable();
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), waitMs);
     try {
-      const response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}${PATH}`, {
+      const response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}${path}`, {
         method: "GET",
         headers: { "x-api-key": serviceKey, accept: "application/json" },
         signal: controller.signal,
@@ -52,7 +55,7 @@ export function createTrazabilidadClient({
     }
   }
 
-  return { fetchEmpleadosActivos };
+  return { fetchEmpleadosActivos: () => fetchRows(PATH_ACTIVOS), fetchPrecontractuales: () => fetchRows(PATH_PRECONTRACTUALES, Math.min(timeoutMs, PRECONTRACTUALES_TIMEOUT_MS)) };
 }
 
 /**
@@ -62,13 +65,15 @@ export function createTrazabilidadClient({
  */
 export function createLazyTrazabilidadClient(getConfig, options = {}) {
   let client = null;
+  const get = () => {
+    if (!client) {
+      const { TRAZABILIDAD_URL, TRAZABILIDAD_SERVICE_KEY } = getConfig();
+      client = createTrazabilidadClient({ baseUrl: TRAZABILIDAD_URL, serviceKey: TRAZABILIDAD_SERVICE_KEY, ...options });
+    }
+    return client;
+  };
   return {
-    fetchEmpleadosActivos() {
-      if (!client) {
-        const { TRAZABILIDAD_URL, TRAZABILIDAD_SERVICE_KEY } = getConfig();
-        client = createTrazabilidadClient({ baseUrl: TRAZABILIDAD_URL, serviceKey: TRAZABILIDAD_SERVICE_KEY, ...options });
-      }
-      return client.fetchEmpleadosActivos();
-    },
+    fetchEmpleadosActivos: () => get().fetchEmpleadosActivos(),
+    fetchPrecontractuales: () => get().fetchPrecontractuales(),
   };
 }

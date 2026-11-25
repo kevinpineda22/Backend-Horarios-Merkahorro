@@ -1,4 +1,5 @@
 import { filterForAccess, mapEmpleados } from "./domain/empleados.js";
+import { mapPrecontractuales } from "./domain/precontractuales.js";
 import { canAccessSede } from "../../shared/http/authorize.js";
 import { HttpError, createHttpError } from "../../shared/http/HttpError.js";
 import { normalizeCedula } from "../../shared/cedula.js";
@@ -6,6 +7,8 @@ import { normalizeSedeAlias as fold } from "../../shared/sedeAlias.js";
 import { isCashierCargo } from "../sugerido/repositories/staff.port.js";
 
 const DEFAULT_TTL_MS = 300000;
+// With the pre-contractual source down the directory is asked again sooner, so a blip does not last the whole TTL.
+const RETRY_TTL_MS = 60000;
 
 const unavailable = () =>
   createHttpError(503, "Employee directory is temporarily unavailable", "STAFF_SOURCE_UNAVAILABLE");
@@ -16,6 +19,10 @@ const unavailable = () =>
  * (single-flight). Failures are never cached and never turn into an empty list: an
  * expired entry is not served stale, the caller gets 503 STAFF_SOURCE_UNAVAILABLE.
  * Mapping counters are logged (counts only, no PII).
+ *
+ * Pre-contractual people (no SIESA contract yet) are a separate list, only returned when asked for (`precontractuales`). They
+ * never count as cashiers by their cargo: a leader has to mark "Programar en caja". Their source is optional: when it fails
+ * the directory still answers, with `precontractualesDisponibles: false`.
  *
  * Cashier marks are NOT part of the cached directory: they change on a click, so every list() reads the active ones
  * (one query) and decorates the rows it returns with `excluidoDeCaja` + `exclusion` ("Solo surtidor", migration 011)
@@ -33,16 +40,36 @@ export function createEmpleadosService({
 }) {
   let cache = null; // { value: { rows, actualizado }, expiresAt }
   let inflight = null;
+  let lastPre = null; // last pre-contractual source rows that could be read
+
+  /** Source rows, or null when they cannot be read (an older trazabilidad, an outage): never fails the directory. */
+  async function loadPrecontractuales() {
+    if (typeof client.fetchPrecontractuales !== "function") return null;
+    try {
+      lastPre = (await client.fetchPrecontractuales()).data;
+      return lastPre;
+    } catch {
+      logger?.warn?.("[empleados] pre-contractual people unavailable");
+      return null;
+    }
+  }
 
   async function load() {
     try {
-      const [source, aliasMap] = await Promise.all([client.fetchEmpleadosActivos(), aliasRepo.loadAliasMap()]);
+      const [source, aliasMap, pre] = await Promise.all([client.fetchEmpleadosActivos(), aliasRepo.loadAliasMap(), loadPrecontractuales()]);
       const { rows, dropped, duplicates, conflicts, inactive } = mapEmpleados(source.data, aliasMap);
       logger?.info?.("[empleados] directory loaded", { rows: rows.length, dropped, duplicates, conflicts, inactive });
       const actualizado = source.actualizado ?? new Date(now()).toISOString();
       // Frozen: the cached directory is shared by every caller and must not be mutated by one of them.
-      const value = Object.freeze({ rows: Object.freeze(rows.map((row) => Object.freeze(row))), actualizado });
-      if (ttlMs > 0) cache = { value, expiresAt: now() + ttlMs };
+      // On a failure the last known people stay, so a marked cashier does not drop out of the recommendation.
+      const preRows = mapPrecontractuales(pre ?? lastPre ?? [], aliasMap, new Set(rows.map((row) => row.cedula)));
+      const value = Object.freeze({
+        rows: Object.freeze(rows.map((row) => Object.freeze(row))),
+        preRows: Object.freeze(preRows.map((row) => Object.freeze(row))),
+        preAvailable: pre !== null,
+        actualizado,
+      });
+      if (ttlMs > 0) cache = { value, expiresAt: now() + (pre === null && lastPre ? Math.min(ttlMs, RETRY_TTL_MS) : ttlMs) };
       return value;
     } catch (err) {
       throw err instanceof HttpError ? err : unavailable();
@@ -69,12 +96,12 @@ export function createEmpleadosService({
     };
   }
 
-  async function list(access, { sede, cargo, q } = {}) {
+  async function list(access, { sede, cargo, q, precontractuales = false } = {}) {
     if (sede !== undefined && !canAccessSede(access, sede)) {
       throw createHttpError(403, "No tienes acceso a esta sede.", "FORBIDDEN_SEDE");
     }
-    const { rows, actualizado } = await getDirectory();
-    let data = filterForAccess(rows, access);
+    const { rows, preRows, preAvailable, actualizado } = await getDirectory();
+    let data = filterForAccess(precontractuales ? [...rows, ...preRows] : rows, access);
     if (sede !== undefined) data = data.filter((row) => row.sedeId === sede);
     if (cargo) {
       const needle = fold(cargo);
@@ -107,7 +134,7 @@ export function createEmpleadosService({
         }),
       ),
     );
-    return { data, total: data.length, actualizado };
+    return { data, total: data.length, actualizado, ...(precontractuales ? { precontractualesDisponibles: preAvailable } : {}) };
   }
 
   /**
@@ -119,16 +146,20 @@ export function createEmpleadosService({
       throw createHttpError(403, "No tienes permisos para realizar esta acción.", "FORBIDDEN_ROLE");
     }
     const cedula = normalizeCedula(cedulaInput);
-    const { rows } = await getDirectory();
-    const employee = rows.find((r) => r.cedula === cedula);
+    const { rows, preRows } = await getDirectory();
+    const employee = rows.find((r) => r.cedula === cedula) ?? preRows.find((r) => r.cedula === cedula);
     if (!employee) throw createHttpError(404, "Empleado no encontrado.", "EMPLEADO_NOT_FOUND");
     if (!canAccessSede(access, employee.sedeId)) {
       throw createHttpError(403, "No tienes acceso a esta sede.", "FORBIDDEN_SEDE");
     }
 
-    // "Programar en caja" is for other cargos: a cashier cargo is already scheduled (or marked Solo surtidor).
-    if (on && kind === "include" && isCashierCargo(employee.cargo)) {
+    // "Programar en caja" is for other cargos: a cashier cargo is already scheduled (or marked Solo surtidor). Somebody
+    // pre-contractual is never scheduled by cargo, so the mark is how she enters the team.
+    if (on && kind === "include" && isCashierCargo(employee.cargo) && employee.precontractual !== true) {
       throw createHttpError(409, "Esta persona ya tiene cargo de caja.", "CARGO_YA_ES_CAJA");
+    }
+    if (on && kind === "exclude" && employee.precontractual === true) {
+      throw createHttpError(409, "Esta persona aún no tiene contrato: solo se programa si la marcas para caja.", "PRECONTRACTUAL");
     }
     if (!on) {
       // Only this kind: unmarking "Programar en caja" never lifts a "Solo surtidor", and the other way round.
