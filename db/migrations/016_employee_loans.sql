@@ -12,8 +12,8 @@
 --   * week_start   the Monday of the lent week.
 --   * motivo       optional, up to 200 characters.
 --
--- DEPLOY: apply this BEFORE deploying the backend. saving a schedule and the sugerido run read this table, so they
--- answer 500 without it. The old backend is unaffected by the new table.
+-- DEPLOY: apply this before (or right after) deploying the backend. Without the table, schedule saves and the sugerido
+-- read no loans, and creating or cancelling a loan answers 503. The old backend is unaffected by the new table.
 -- ROLLBACK: db/migrations/rollback/016_employee_loans.down.sql (drops the table: the history is lost).
 
 create table if not exists employee_loans (
