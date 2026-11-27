@@ -493,7 +493,7 @@ test("migration 016: table, checks, partial indexes, RLS closed to anon/authenti
   assert.ok(sql.includes("alter table employee_loans enable row level security"));
   assert.ok(sql.includes("revoke all on table employee_loans from anon, authenticated"));
   assert.doesNotMatch(sql, /create policy/);
-  assert.match(read("migrations/016_employee_loans.sql"), /apply this BEFORE deploying the backend/i);
+  assert.match(read("migrations/016_employee_loans.sql"), /creating or cancelling a loan answers 503/i);
 });
 
 test("migration 016: rollback snapshots then drops; verify ends in ROLLBACK", () => {
