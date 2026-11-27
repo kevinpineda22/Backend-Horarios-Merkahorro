@@ -215,7 +215,7 @@ export function createSugeridoService({ suggestionsRepo, settingsRepo, salesRepo
       })();
       const [[history, registerCounts], pool, absenceResult] = await Promise.all([
         salesData,
-        staffPort.getCashierPool(sedeId),
+        staffPort.getCashierPool(sedeId, weekStart),
         absencesPort.getAbsences({ weekStart, blockingTypes: snapshot.blockingAbsenceTypes }),
       ]);
 

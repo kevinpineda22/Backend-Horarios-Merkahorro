@@ -1,4 +1,5 @@
 import { createHttpError } from "../../shared/http/HttpError.js";
+import { normalizeCedula } from "../../shared/cedula.js";
 import { canAccessSede } from "../../shared/http/authorize.js";
 import { addDays } from "../sugerido/domain/dates.js";
 import { normalizeWeekPayload } from "./domain/weekPayload.js";
@@ -71,7 +72,7 @@ const toSnapshotRow = (r) => {
  *                 not be published above 10 h + the approved overtime of the week. A read error propagates (fail closed).
  * The routes already filter roles and sedes; every use case re-checks sede access (and writes the role) so the service is safe on its own.
  */
-export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null, overtimeRepo = null, logger = console }) {
+export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null, overtimeRepo = null, loansRepo = null, logger = console }) {
   async function assertSede(sedeId) {
     if (!(await repo.findSede(sedeId))) throw createHttpError(404, "Sede no encontrada.", "SEDE_NOT_FOUND");
   }
@@ -83,6 +84,27 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
 
   function assertCanRead(access, sedeId) {
     if (!canAccessSede(access, sedeId)) throw forbiddenSede();
+  }
+
+  /**
+   * A person lent to another sede for the week belongs to that sede's team: this sede cannot save shifts for her. Only the
+   * cedulas that have rows in the payload are checked (clearing a person never fails).
+   */
+  async function assertNotLentOut(sedeId, weekStart, normalized) {
+    if (!loansRepo) return;
+    const cedulas = [...new Set(normalized.map((s) => normalizeCedula(s.cedula)))];
+    if (cedulas.length === 0) return;
+    const loans = await loansRepo.listActiveLentOut({ sedeId, weekStart, cedulas });
+    if (loans.length === 0) return;
+    const hostId = loans[0].hostSedeId;
+    const host = await repo.findSede(hostId);
+    const err = createHttpError(
+      409,
+      `Esta persona está prestada a ${host?.nombre ?? hostId} esa semana: no puedes programarla en esta sede.`,
+      "EMPLOYEE_LENT",
+    );
+    err.details = { loans: loans.map((l) => ({ cedula: l.cedula, hostSedeId: l.hostSedeId })) };
+    throw err;
   }
 
   /** Freezes recommendation + suggestion (as the client sent them) + the published rows. true when stored. */
@@ -305,6 +327,7 @@ export function createHorariosService({ repo, profilesRepo, snapshotsRepo = null
       assertCanWrite(access, sedeId);
       await assertSede(sedeId);
       const normalized = normalizeWeekPayload({ weekStart, cedulas, shifts });
+      await assertNotLentOut(sedeId, weekStart, normalized);
 
       // The payload replaces the sent cedulas of this sede-week; everything else comes from other schedules.
       const current = await repo.findSchedule(sedeId, weekStart, teamKey);

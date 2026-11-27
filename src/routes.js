@@ -13,6 +13,9 @@ import { getEnv } from "./config/env.js";
 import { createEmpleadosRouter } from "./modules/empleados/empleados.routes.js";
 import { createCashierExclusionsRepo } from "./modules/empleados/cashierExclusions.supabase.js";
 import { createEmpleadosService } from "./modules/empleados/empleados.service.js";
+import { createEmployeeLoansRepo } from "./modules/empleados/employeeLoans.supabase.js";
+import { createEmployeeLoansService } from "./modules/empleados/employeeLoans.service.js";
+import { createSuggestionsRepo } from "./modules/sugerido/repositories/suggestions.supabase.js";
 import { createSedeAliasRepo } from "./modules/empleados/sedeAliases.supabase.js";
 import { createLazyTrazabilidadClient } from "./modules/empleados/trazabilidad.client.js";
 import { createAccesosRepo, createProfilesRepo } from "./modules/accesos/accesos.supabase.js";
@@ -71,6 +74,8 @@ const empleadosService = createEmpleadosService({
   ttlMs: parseTtl(process.env.EMPLEADOS_CACHE_TTL_MS),
 });
 
+const loansRepo = createEmployeeLoansRepo(lazyClient);
+
 export default createRoutes({
   modules: {
     // PUBLIC (no authenticate): employees look up their published shifts by cedula. Rate limited, minimal projection.
@@ -102,6 +107,12 @@ export default createRoutes({
       authenticate,
       accessRepo,
       service: empleadosService,
+      loansService: createEmployeeLoansService({
+        repo: loansRepo,
+        empleadosService,
+        sedeRepo: createSuggestionsRepo(lazyClient),
+        shiftsRepo: createHorariosRepo(lazyClient),
+      }),
     }),
     // Mounted before "/horarios" so the shift router never sees payroll paths.
     // Extra overtime requests: leaders ask, the approvers (OVERTIME_APPROVERS, by e-mail) decide in Autorizaciones.
@@ -135,9 +146,10 @@ export default createRoutes({
         profilesRepo: createProfilesRepo(lazyClient),
         snapshotsRepo: createPublishSnapshotsRepo(lazyClient),
         overtimeRepo: createOvertimeRepo(lazyClient),
+        loansRepo,
       }),
     }),
     // Sales pool and Supabase are created on first use (see sugerido.module.js).
-    "/sugerido": createSugeridoModule({ authenticate, accessRepo, client: lazyClient, empleadosService, getPool }),
+    "/sugerido": createSugeridoModule({ authenticate, accessRepo, client: lazyClient, empleadosService, getPool, loansRepo }),
   },
 });

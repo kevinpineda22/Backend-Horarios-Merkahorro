@@ -27,11 +27,27 @@ const unavailable = () =>
   createHttpError(503, "Employee directory is temporarily unavailable", "STAFF_SOURCE_UNAVAILABLE");
 
 /**
- * Staff port over the empleados service. `sedeRepo.getSede` is the sugerido_sedes lookup
- * (throws 404 SEDE_NOT_MAPPED for an unknown sede). Errors from the directory propagate
- * untouched: a failing source is never turned into an empty pool.
+ * Would this directory row be a schedulable cashier? Same rules wherever she works: "Programar en caja" always counts;
+ * "Solo surtidor" and pre-contractual people (without that mark) never do; otherwise the cashier cargo allowlist decides.
  */
-export function createStaffPort(empleadosService, sedeRepo) {
+function isSchedulableCashier(row) {
+  if (row?.activo !== true) return false;
+  // "Programar en caja": another cargo in SIESA, but the leader says she works the register.
+  if (row.incluidoEnCaja === true) return true;
+  // "Solo surtidor": SIESA says cashier, the leader says she does not work the register (yet).
+  if (row.excluidoDeCaja === true) return false;
+  // No contract yet: only whoever the leader marked "Programar en caja" counts.
+  if (row.precontractual === true) return false;
+  return CASHIER_CARGOS.includes(normalizeCargo(row.cargo));
+}
+
+/**
+ * Staff port over the empleados service. `sedeRepo.getSede` is the sugerido_sedes lookup
+ * (throws 404 SEDE_NOT_MAPPED for an unknown sede). `loansRepo` (optional, migration 016) makes the pool aware of employee
+ * loans between sedes. Errors from the directory or the loans propagate untouched: a failing source is never turned into
+ * an empty pool.
+ */
+export function createStaffPort(empleadosService, sedeRepo, loansRepo = null) {
   if (typeof empleadosService?.list !== "function") throw new Error("empleadosService with list() is required");
   if (typeof sedeRepo?.getSede !== "function") throw new Error("sedeRepo with getSede() is required");
 
@@ -43,26 +59,37 @@ export function createStaffPort(empleadosService, sedeRepo) {
       return new Set(result.data.filter((row) => row?.activo === true && normalizeCargo(row.cargo) === STOCKER_CARGO).map((row) => normalizeCedula(row.cedula)).filter(Boolean));
     },
 
-    /** Active cashiers of the sede as [{ cedula }] (normalized, unique). */
-    async getCashierPool(sedeId) {
+    /**
+     * Active cashiers of the sede as [{ cedula }] (normalized, unique). With `weekStart` the pool follows the employee
+     * loans of that week: people lent OUT of the sede leave it, people lent IN join it (if they would be schedulable
+     * cashiers by the rules above). Without a week (or without a loans repo) the loans are ignored.
+     */
+    async getCashierPool(sedeId, weekStart = null) {
       if (typeof sedeId !== "string" || sedeId.trim() === "") throw notMapped();
       await sedeRepo.getSede(sedeId);
+
+      const loans = loansRepo && weekStart ? await loansRepo.listActiveByWeek(weekStart) : [];
+      const lentOut = new Set(loans.filter((l) => l.homeSedeId === sedeId).map((l) => normalizeCedula(l.cedula)));
+      const lentIn = new Set(loans.filter((l) => l.hostSedeId === sedeId).map((l) => normalizeCedula(l.cedula)));
 
       const result = await empleadosService.list(SERVICE_ACCESS, { sede: sedeId, precontractuales: true });
       if (!Array.isArray(result?.data)) throw unavailable();
 
       const cedulas = new Set();
       for (const row of result.data) {
-        if (row?.activo !== true || row.sedeId !== sedeId) continue;
-        // "Programar en caja": another cargo in SIESA, but the leader says she works the register.
-        const included = row.incluidoEnCaja === true;
-        // "Solo surtidor": SIESA says cashier, the leader says she does not work the register (yet).
-        if (!included && row.excluidoDeCaja === true) continue;
-        // No contract yet: only whoever the leader marked "Programar en caja" counts.
-        if (!included && row.precontractual === true) continue;
-        if (!included && !CASHIER_CARGOS.includes(normalizeCargo(row.cargo))) continue;
+        if (row?.sedeId !== sedeId || !isSchedulableCashier(row)) continue;
         const cedula = normalizeCedula(row.cedula);
-        if (cedula) cedulas.add(cedula);
+        if (cedula && !lentOut.has(cedula)) cedulas.add(cedula);
+      }
+
+      if (lentIn.size > 0) {
+        // They belong to another sede in the directory, so the sede-filtered list above does not have them.
+        const everyone = await empleadosService.list(SERVICE_ACCESS, { precontractuales: true });
+        if (!Array.isArray(everyone?.data)) throw unavailable();
+        for (const row of everyone.data) {
+          const cedula = normalizeCedula(row?.cedula);
+          if (cedula && lentIn.has(cedula) && isSchedulableCashier(row)) cedulas.add(cedula);
+        }
       }
       return [...cedulas].map((cedula) => ({ cedula }));
     },

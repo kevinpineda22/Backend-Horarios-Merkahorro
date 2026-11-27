@@ -141,11 +141,25 @@ export function createHorariosRepo(client, { logger = console } = {}) {
     async findSede(sedeId) {
       const { data, error } = await client
         .from("sugerido_sedes")
-        .select("sede_id, siesa_code")
+        .select("sede_id, siesa_code, nombre")
         .eq("sede_id", sedeId)
         .maybeSingle();
       if (error) throw error;
       return data ?? null;
+    },
+
+    /** True when the cedula has at least one shift row (any tipo, any schedule) in the sede within [from, to]. */
+    async hasShiftsInSedeWeek({ cedula, sedeId, from, to }) {
+      const { data, error } = await client
+        .from("shifts")
+        .select("id")
+        .eq("cedula", cedula)
+        .eq("sede_id", sedeId)
+        .gte("fecha", from)
+        .lte("fecha", to)
+        .limit(1);
+      if (error) throw error;
+      return (data ?? []).length > 0;
     },
 
     /** The schedule of one team (migration 015) for a sede-week, or null. */

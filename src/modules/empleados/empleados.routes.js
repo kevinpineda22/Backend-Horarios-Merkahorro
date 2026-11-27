@@ -4,6 +4,7 @@ import { asyncHandler } from "../../shared/http/asyncHandler.js";
 import { validate } from "../../shared/http/validate.js";
 import { loadAccess, requireRole } from "../../shared/http/authorize.js";
 import { isValidCedula } from "../../shared/cedula.js";
+import { isoDow, toEpochDay } from "../sugerido/domain/dates.js";
 
 const filter = (max) => z.string().trim().min(1, "Filtro vacío").max(max, "Filtro demasiado largo").optional();
 
@@ -30,11 +31,37 @@ export const inclusionBodySchema = z.object({
   motivo: exclusionBodySchema.shape.motivo,
 });
 
+function isMonday(value) {
+  try {
+    toEpochDay(value);
+    return isoDow(value) === 1;
+  } catch {
+    return false;
+  }
+}
+
+// Employee loans between sedes (migration 016): one full week, identified by its Monday.
+const weekStart = z
+  .string({ required_error: "weekStart es obligatorio" })
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida (YYYY-MM-DD)")
+  .refine(isMonday, "weekStart debe ser un lunes válido (YYYY-MM-DD)");
+
+export const loansQuerySchema = z.object({ weekStart });
+
+export const loanBodySchema = z.object({
+  cedula: z.string({ required_error: "La cédula es obligatoria" }).trim().refine(isValidCedula, "Cédula inválida"),
+  hostSedeId: z.string({ required_error: "La sede que recibe es obligatoria" }).trim().min(1, "Sede inválida"),
+  weekStart,
+  motivo: exclusionBodySchema.shape.motivo,
+});
+
+export const loanParamsSchema = z.object({ id: z.string().uuid("Identificador inválido") });
+
 /**
  * GET /api/empleados. Order: authenticate -> loadAccess -> requireRole -> validate.
  * Any role with an access row can read; each caller only sees rows of its sedes.
  */
-export function createEmpleadosRouter({ authenticate, accessRepo, service }) {
+export function createEmpleadosRouter({ authenticate, accessRepo, service, loansService = null }) {
   const router = Router();
 
   router.use(authenticate, loadAccess(accessRepo), requireRole("viewer", "planner", "admin"));
@@ -44,6 +71,30 @@ export function createEmpleadosRouter({ authenticate, accessRepo, service }) {
     validate({ query: listQuerySchema }),
     asyncHandler(async (req, res) => res.json(await service.list(req.access, req.query))),
   );
+
+  // Loans of an employee between sedes (one week, applied at once). Declared before the /:cedula routes. The service decides
+  // the sede rules: admin, or a planner of the person's HOME sede, creates and cancels; every role reads its own sedes.
+  if (loansService) {
+    router.get(
+      "/prestamos",
+      validate({ query: loansQuerySchema }),
+      asyncHandler(async (req, res) => res.json({ data: await loansService.list(req.access, req.query) })),
+    );
+
+    router.post(
+      "/prestamos",
+      requireRole("admin", "planner"),
+      validate({ body: loanBodySchema }),
+      asyncHandler(async (req, res) => res.status(201).json({ data: await loansService.create(req.access, req.user, req.body) })),
+    );
+
+    router.delete(
+      "/prestamos/:id",
+      requireRole("admin", "planner"),
+      validate({ params: loanParamsSchema }),
+      asyncHandler(async (req, res) => res.json({ data: await loansService.cancel(req.access, req.user, req.params.id) })),
+    );
+  }
 
   // "Solo surtidor / no programar en caja": admin anywhere, planner only for their sedes (the service decides).
   router.put(

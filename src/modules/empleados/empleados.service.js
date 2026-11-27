@@ -216,5 +216,15 @@ export function createEmpleadosService({
     return rows.find((r) => r.cedula === cedula) ?? null;
   }
 
-  return { list, setExclusion, setInclusion, findActiveByCedula };
+  /**
+   * The directory row of a cedula, active or pre-contractual, or null. No access scoping and no cashier marks: for
+   * internal use cases (employee loans) that do their own authorization.
+   */
+  async function findByCedula(cedulaInput) {
+    const cedula = normalizeCedula(cedulaInput);
+    const { rows, preRows } = await getDirectory();
+    return rows.find((r) => r.cedula === cedula) ?? preRows.find((r) => r.cedula === cedula) ?? null;
+  }
+
+  return { list, setExclusion, setInclusion, findActiveByCedula, findByCedula };
 }

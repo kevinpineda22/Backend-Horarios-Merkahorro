@@ -17,12 +17,13 @@ import { createNovedadesRepo } from "../novedades/novedades.supabase.js";
  *
  *   client             lazy Supabase client ({ from, rpc })
  *   empleadosService   the SAME instance mounted at /empleados, so both share one directory cache
+ *   loansRepo          employee loans repo (migration 016); optional: without it the cashier pool ignores loans
  *   getPool            () => pg pool for the sales database; may throw when POSTGRES_* is missing
  *
  * A missing POSTGRES_* configuration surfaces inside the sales query as 503 SALES_DB_UNAVAILABLE;
  * a missing TRAZABILIDAD_* configuration as 503 STAFF_SOURCE_UNAVAILABLE (see the empleados client).
  */
-export function createSugeridoModule({ authenticate, accessRepo, client, empleadosService, getPool, now }) {
+export function createSugeridoModule({ authenticate, accessRepo, client, empleadosService, getPool, now, loansRepo = null }) {
   const suggestionsRepo = createSuggestionsRepo(client);
   const service = createSugeridoService({
     suggestionsRepo,
@@ -30,7 +31,7 @@ export function createSugeridoModule({ authenticate, accessRepo, client, emplead
     // connect() is invoked inside the repository's try block, so a throwing getPool() is mapped
     // to SALES_DB_UNAVAILABLE like any other connection failure.
     salesRepo: createSalesRepo({ connect: () => getPool().connect() }),
-    staffPort: createStaffPort(empleadosService, suggestionsRepo),
+    staffPort: createStaffPort(empleadosService, suggestionsRepo, loansRepo),
     absencesPort: createAbsencesPort(createNovedadesRepo(client)),
     snapshotsRepo: createPublishSnapshotsRepo(client),
     shiftsPort: createPublishedShiftsPort(createHorariosRepo(client)),
